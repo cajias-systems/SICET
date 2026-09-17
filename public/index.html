@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Control de Salidas de Equipos - Teletrabajo</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="/css/custom.css">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen flex flex-col antialiased selection:bg-blue-500 selection:text-white">
+
+  <!-- ============================================================= -->
+  <!-- 1. PANTALLA DE LOGIN CON SELECTOR DE 27 LÍDERES -->
+  <!-- ============================================================= -->
+  <section id="vista-login" class="flex-1 flex items-center justify-center p-4 bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 min-h-screen">
+    <div class="max-w-md w-full bg-white/95 backdrop-blur-md p-8 rounded-3xl shadow-2xl border border-slate-700/50 space-y-6">
+      
+      <div class="text-center space-y-2">
+        <div class="inline-flex w-16 h-16 rounded-2xl bg-blue-600 text-white items-center justify-center shadow-lg shadow-blue-500/30">
+          <i data-lucide="shield-check" class="w-9 h-9"></i>
+        </div>
+        <h1 class="text-2xl font-black text-slate-900 tracking-tight">CONTROL DE SALIDAS</h1>
+        <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider">Acceso Seguro por Perfil y Roles</p>
+      </div>
+
+      <!-- Tarjetas Selectoras Rápidas de Rol -->
+      <div>
+        <label class="block text-xs font-black uppercase text-slate-600 mb-2">Seleccione su Perfil de Ingreso:</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button type="button" onclick="seleccionarRolRapido('sistemas')" id="btnRolSistemas" class="rol-card p-3 rounded-2xl border-2 border-slate-200 hover:border-blue-500 text-center transition flex flex-col items-center gap-1 bg-slate-50">
+            <i data-lucide="server" class="w-5 h-5 text-blue-600"></i>
+            <span class="text-xs font-black text-slate-800">Sistemas</span>
+            <span class="text-[9px] text-slate-400 font-bold">Admin TI</span>
+          </button>
+
+          <button type="button" onclick="seleccionarRolRapido('garita')" id="btnRolGarita" class="rol-card p-3 rounded-2xl border-2 border-slate-200 hover:border-emerald-500 text-center transition flex flex-col items-center gap-1 bg-slate-50">
+            <i data-lucide="shield-alert" class="w-5 h-5 text-emerald-600"></i>
+            <span class="text-xs font-black text-slate-800">Garita</span>
+            <span class="text-[9px] text-slate-400 font-bold">Seguridad</span>
+          </button>
+
+          <button type="button" onclick="seleccionarRolRapido('lider')" id="btnRolLider" class="rol-card p-3 rounded-2xl border-2 border-slate-200 hover:border-purple-500 text-center transition flex flex-col items-center gap-1 bg-slate-50">
+            <i data-lucide="users" class="w-5 h-5 text-purple-600"></i>
+            <span class="text-xs font-black text-slate-800">Líder</span>
+            <span class="text-[9px] text-slate-400 font-bold">27 Líderes</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Formulario de Login -->
+      <form onsubmit="ejecutarLogin(event)" class="space-y-4 pt-1">
+        
+        <!-- Campo para Usuario Normal (Sistemas o Seguridad) -->
+        <div id="campoUsuarioTexto">
+          <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Usuario</label>
+          <div class="relative flex items-center">
+            <i data-lucide="user" class="w-4 h-4 text-slate-400 absolute left-3"></i>
+            <input 
+              type="text" 
+              id="loginUsername" 
+              placeholder="Ingrese su usuario..." 
+              class="w-full pl-9 pr-3 py-3 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-slate-50 focus:bg-white"
+            >
+          </div>
+        </div>
+
+        <!-- COMBO BOX DESPLEGABLE PARA LOS 27 LÍDERES OFICIALES -->
+        <div id="campoComboLideres" class="hidden">
+          <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccione su Nombre de Líder *</label>
+          <div class="relative flex items-center">
+            <i data-lucide="user-check" class="w-4 h-4 text-purple-600 absolute left-3 z-10"></i>
+            <select 
+              id="loginSelectLider" 
+              class="w-full pl-9 pr-3 py-3 text-sm font-bold border-2 border-purple-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none bg-purple-50/50"
+            >
+              <!-- Llenado dinámico con los 27 líderes -->
+            </select>
+          </div>
+          <span class="text-[10px] text-purple-700 font-semibold mt-1 block">Nómina oficial del edificio (7 pisos)</span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Contraseña</label>
+          <div class="relative flex items-center">
+            <i data-lucide="lock" class="w-4 h-4 text-slate-400 absolute left-3"></i>
+            <input 
+              type="password" 
+              id="loginPassword" 
+              required 
+              placeholder="••••••••" 
+              class="w-full pl-9 pr-3 py-3 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-slate-50 focus:bg-white"
+            >
+          </div>
+        </div>
+
+        <div id="loginErrorMsg" class="hidden p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-bold text-rose-700"></div>
+
+        <button 
+          type="submit" 
+          id="btnLoginSubmit"
+          class="touch-btn w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-sm rounded-xl shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 transition"
+        >
+          <span>INGRESAR AL SISTEMA</span>
+          <i data-lucide="arrow-right" class="w-4 h-4"></i>
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============================================================= -->
+  <!-- 2. VISTA DE LA APLICACIÓN COMPLETA (PROTEGIDA POR ROL) -->
+  <!-- ============================================================= -->
+  <div id="vista-app" class="hidden flex-1 flex-col min-h-screen">
+    
+    <!-- HEADER PRINCIPAL -->
+    <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-40 border-b border-slate-800">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-16">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-md shadow-blue-500/30 text-white">
+              <i data-lucide="shield-check" class="w-6 h-6"></i>
+            </div>
+            <div>
+              <div class="font-black text-base sm:text-lg tracking-tight flex items-center gap-2">
+                <span>CONTROL DE SALIDAS</span>
+                <span id="headerRolBadge" class="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-400/30">Admin</span>
+              </div>
+              <div class="text-xs text-slate-400 font-medium" id="headerSubtituloArea">Plataforma de Control de Teletrabajo</div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-4">
+            <div class="hidden md:flex flex-col text-right">
+              <span id="liveTime" class="font-mono text-sm font-bold text-slate-200">--:--:--</span>
+              <span id="liveDate" class="text-xs text-slate-400">--/--/----</span>
+            </div>
+            
+            <div class="h-8 w-px bg-slate-800 hidden md:block"></div>
+
+            <div class="flex items-center gap-3">
+              <div class="flex items-center gap-2 text-xs bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
+                <i data-lucide="user-check" class="w-4 h-4 text-emerald-400"></i>
+                <span id="appUsuarioNombre" class="font-black text-slate-200">Usuario</span>
+              </div>
+
+              <button 
+                onclick="ejecutarLogout()" 
+                class="touch-btn px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-xl text-xs font-black border border-rose-500/40 flex items-center gap-1.5 transition"
+                title="Cerrar sesión actual"
+              >
+                <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+                <span>Salir</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- BARRA DE NAVEGACIÓN FILTRADA SEGÚN EL ROL -->
+        <nav id="navbarModulos" class="flex space-x-1 sm:space-x-2 border-t border-slate-800/60 py-2 overflow-x-auto text-sm font-bold">
+          
+          <button onclick="cambiarModulo('lideres')" id="nav-lideres" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-slate-300 hover:text-white hover:bg-slate-800">
+            <i data-lucide="users" class="w-4 h-4"></i>
+            <span>Portal Líderes (Mi Equipo)</span>
+          </button>
+
+          <button onclick="cambiarModulo('garita')" id="nav-garita" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-slate-300 hover:text-white hover:bg-slate-800">
+            <i data-lucide="shield-alert" class="w-4 h-4"></i>
+            <span>GARITA (Pistola / Salidas)</span>
+          </button>
+
+          <button onclick="cambiarModulo('sistemas')" id="nav-sistemas" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-slate-300 hover:text-white hover:bg-slate-800">
+            <i data-lucide="server" class="w-4 h-4"></i>
+            <span>Sistemas (Aprobaciones)</span>
+            <span id="badgePendientesNav" class="hidden text-xs bg-amber-500 text-slate-900 font-bold px-1.5 py-0.2 rounded-full">0</span>
+          </button>
+
+          <button onclick="cambiarModulo('reporte-lideres')" id="nav-reporte-lideres" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-slate-300 hover:text-white hover:bg-slate-800">
+            <i data-lucide="folder-check" class="w-4 h-4"></i>
+            <span>Reporte por Líderes</span>
+          </button>
+
+          <button onclick="cambiarModulo('retornos')" id="nav-retornos" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-slate-300 hover:text-white hover:bg-slate-800">
+            <i data-lucide="corner-down-left" class="w-4 h-4"></i>
+            <span>Retorno de Equipos</span>
+          </button>
+
+          <button onclick="cambiarModulo('auditoria')" id="nav-auditoria" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-slate-300 hover:text-white hover:bg-slate-800">
+            <i data-lucide="activity" class="w-4 h-4"></i>
+            <span>Trazabilidad & Logs</span>
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <!-- CONTENIDO PRINCIPAL DE LA APLICACIÓN -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+
+      <!-- ============================================================= -->
+      <!-- MODULO 1: PORTAL LÍDERES (CON CATÁLOGO DE EQUIPO EN 1 CLIC) -->
+      <!-- ============================================================= -->
+      <section id="modulo-lideres" class="space-y-6">
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4 mb-6">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="px-2.5 py-0.5 bg-purple-100 text-purple-800 text-xs font-black uppercase rounded-full">Portal del Líder</span>
+                <span class="text-xs text-slate-400 font-semibold">Gestión de Equipos por Piso</span>
+              </div>
+              <h1 class="text-2xl sm:text-3xl font-black text-slate-900 mt-1">Autorización de Equipos para Teletrabajo</h1>
+              <p class="text-slate-500 text-xs mt-0.5">Seleccione los asesores que se llevan la computadora hoy o cargue nuevos miembros a su equipo.</p>
+            </div>
+
+            <!-- TABS DEL LÍDER -->
+            <div class="flex bg-slate-100 p-1.5 rounded-2xl text-xs font-black">
+              <button onclick="cambiarTabLider('habitual')" id="tab-lider-hab" class="px-4 py-2.5 rounded-xl bg-white text-purple-700 shadow-sm flex items-center gap-1.5 transition">
+                <i data-lucide="users-2" class="w-4 h-4"></i>
+                <span>Mi Equipo Habitual</span>
+              </button>
+              <button onclick="cambiarTabLider('individual')" id="tab-lider-ind" class="px-4 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 flex items-center gap-1.5 transition">
+                <i data-lucide="user-plus" class="w-4 h-4"></i>
+                <span>Nuevo Asesor</span>
+              </button>
+              <button onclick="cambiarTabLider('masivo')" id="tab-lider-mas" class="px-4 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 flex items-center gap-1.5 transition">
+                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                <span>Carga Masiva Excel</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- SUB-TAB 1: MI EQUIPO HABITUAL (AUTORIZACIÓN EN 1 CLIC) -->
+          <div id="vista-lider-habitual" class="space-y-6">
+            <div class="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 p-5 rounded-2xl border border-purple-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 class="text-base font-black text-purple-950 flex items-center gap-2">
+                  <i data-lucide="zap" class="w-5 h-5 text-purple-600"></i>
+                  <span>Nómina Habitual de Mi Equipo</span>
+                </h3>
+                <p class="text-xs text-purple-800 mt-1">
+                  Marque los asesores que van a teletrabajo hoy y presione el botón de autorización. No necesita volver a escribir números de serie ni cédulas.
+                </p>
+              </div>
+
+              <!-- BOTÓN GIGANTE DE ENVÍO EN 1 CLIC -->
+              <button 
+                onclick="autorizarSeleccionadosHabituales()" 
+                id="btnAutorizarHabituales" 
+                class="touch-btn px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition flex-shrink-0"
+              >
+                <i data-lucide="send" class="w-4 h-4"></i>
+                <span id="textoBtnAutorizarHabitual">Autorizar Seleccionados para Hoy</span>
+              </button>
+            </div>
+
+            <!-- TABLA DE MI EQUIPO CON CHECKBOXES -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-black border-b border-slate-200">
+                  <tr>
+                    <th class="p-3 w-10">
+                      <input type="checkbox" id="checkSelectAllHabituales" onchange="toggleSelectAllHabituales(this)" class="rounded text-purple-600 w-4 h-4">
+                    </th>
+                    <th class="p-3">Asesor</th>
+                    <th class="p-3">Cédula</th>
+                    <th class="p-3">N° Serie Laptop</th>
+                    <th class="p-3">Modelo</th>
+                    <th class="p-3">Área / Campaña</th>
+                    <th class="p-3 text-center">Estado para Hoy</th>
+                    <th class="p-3 text-right">Opciones</th>
+                  </tr>
+                </thead>
+                <tbody id="cuerpoTablaMiEquipo" class="divide-y divide-slate-100 font-medium">
+                  <!-- Llenado dinámico -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- SUB-TAB 2: REGISTRO INDIVIDUAL -->
+          <div id="vista-lider-individual" class="hidden space-y-4">
+            <form onsubmit="guardarSolicitudIndividual(event)" class="space-y-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre del Líder *</label>
+                  <input type="text" id="liderInputNombre" required readonly class="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg bg-slate-100 font-bold">
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Área / Campaña *</label>
+                  <select id="liderSelectArea" required class="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none"></select>
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha de Salida *</label>
+                  <input type="date" id="liderInputFechaSalida" required class="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+              </div>
+
+              <div class="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Cédula del Asesor *</label>
+                  <input type="text" id="liderInputCedula" required placeholder="Ej: 1725665127" class="w-full px-3 py-2.5 text-sm font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+                <div class="lg:col-span-2">
+                  <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nombres y Apellidos *</label>
+                  <input type="text" id="liderInputAsesorNombres" required placeholder="Ej: ANRANGO COLLAGUAZO JENNIFER" class="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 uppercase mb-1">N° de Serie / Código *</label>
+                  <input type="text" id="liderInputCodigo" required placeholder="Ej: D6QHM72" class="w-full px-3 py-2.5 text-sm font-mono uppercase border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Modelo / Marca</label>
+                  <input type="text" id="liderInputModelo" value="DELL" class="w-full px-3 py-2.5 text-sm font-bold uppercase border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Estimada de Retorno</label>
+                  <input type="date" id="liderInputFechaRetorno" class="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Observaciones / Motivo</label>
+                  <input type="text" id="liderInputObs" placeholder="Ej: Guardia vespertina..." class="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                </div>
+              </div>
+
+              <div class="flex justify-end pt-2">
+                <button type="submit" class="touch-btn px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm rounded-xl shadow flex items-center gap-2">
+                  <i data-lucide="send" class="w-4 h-4"></i>
+                  <span>Enviar a Sistemas y Guardar en Mi Equipo</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- SUB-TAB 3: CARGA MASIVA EXCEL -->
+          <div id="vista-lider-masivo" class="hidden space-y-6">
+            <div class="bg-purple-50 border border-purple-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold">
+                  <i data-lucide="file-spreadsheet" class="w-6 h-6"></i>
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-purple-900">Plantilla Oficial para Importación</h3>
+                  <p class="text-xs text-purple-700">Los asesores que suba aquí quedarán automáticamente en su catálogo habitual.</p>
+                </div>
+              </div>
+              <a href="/api/plantilla-excel" download class="touch-btn px-4 py-2 bg-white hover:bg-slate-50 text-purple-700 font-bold text-xs rounded-lg border border-purple-300 shadow-sm flex items-center gap-2">
+                <i data-lucide="download" class="w-4 h-4"></i>
+                <span>Descargar Plantilla (.xlsx)</span>
+              </a>
+            </div>
+
+            <div class="border-2 border-dashed border-slate-300 hover:border-purple-500 transition rounded-2xl p-8 text-center bg-slate-50/50">
+              <input type="file" id="inputArchivoExcel" accept=".xlsx, .xls, .csv" class="hidden" onchange="archivoExcelSeleccionado(this)">
+              <label for="inputArchivoExcel" class="cursor-pointer flex flex-col items-center justify-center space-y-3">
+                <div class="w-14 h-14 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center">
+                  <i data-lucide="upload-cloud" class="w-8 h-8"></i>
+                </div>
+                <div>
+                  <span class="text-sm font-bold text-slate-800">Haga clic aquí para subir su archivo Excel</span>
+                  <p class="text-xs text-slate-500 mt-1">Se importarán las solicitudes y se guardarán en su equipo habitual.</p>
+                </div>
+                <span id="nombreArchivoSubido" class="text-xs font-semibold text-purple-600 bg-purple-50 px-3 py-1 rounded-full hidden"></span>
+              </label>
+            </div>
+
+            <div class="flex justify-end">
+              <button onclick="procesarCargaMasivaExcel()" id="btnProcesarExcel" disabled class="touch-btn px-6 py-3 bg-slate-400 text-white font-bold text-sm rounded-xl shadow flex items-center gap-2 cursor-not-allowed">
+                <i data-lucide="check" class="w-4 h-4"></i>
+                <span>Procesar e Importar Listado</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- SOLICITUDES DEL DÍA DEL LÍDER -->
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-bold text-slate-800">Estado de mis Solicitudes Registradas Hoy</h2>
+            <button onclick="cargarSolicitudesLiderHoy()" class="text-xs text-blue-600 hover:underline flex items-center gap-1 font-semibold">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-bold border-b border-slate-200">
+                <tr>
+                  <th class="p-3">Asesor</th>
+                  <th class="p-3">Cédula</th>
+                  <th class="p-3">Área</th>
+                  <th class="p-3">Serie</th>
+                  <th class="p-3">Modelo</th>
+                  <th class="p-3">Estado</th>
+                  <th class="p-3">Detalle / Motivo</th>
+                </tr>
+              </thead>
+              <tbody id="tablaLiderHoy" class="divide-y divide-slate-100 font-medium"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- MODULO 2: GARITA (MODO ULTRA RÁPIDO CON PISTOLA) -->
+      <!-- ============================================================= -->
+      <section id="modulo-garita" class="hidden space-y-6">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-3">
+          <div class="flex gap-2">
+            <button onclick="cambiarSubtabGarita('despacho')" id="subtab-garita-despacho" class="px-4 py-2 rounded-xl text-sm font-black bg-emerald-600 text-white shadow-sm flex items-center gap-2">
+              <i data-lucide="scan-line" class="w-4 h-4"></i>
+              <span>Ventanilla de Salida (5:00 PM)</span>
+            </button>
+            <button onclick="cambiarSubtabGarita('bitacora')" id="subtab-garita-bitacora" class="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-200 flex items-center gap-2">
+              <i data-lucide="clipboard-list" class="w-4 h-4"></i>
+              <span>Bitácora de Salidas de Hoy</span>
+            </button>
+          </div>
+          <button onclick="imprimirBitacoraGarita()" class="touch-btn text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 px-3 py-2 rounded-lg flex items-center gap-1.5 shadow-sm">
+            <i data-lucide="printer" class="w-4 h-4 text-slate-600"></i>
+            <span>Imprimir Control del Guardia</span>
+          </button>
+        </div>
+
+        <div id="garita-vista-despacho" class="space-y-6">
+          <div class="bg-gradient-to-r from-slate-900 via-emerald-950 to-slate-900 text-white p-6 sm:p-8 rounded-3xl shadow-xl border-2 border-emerald-500/30">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 mb-2">
+                  <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span> MODO PISTOLA ACTIVO — LISTO PARA ESCANEAR
+                </span>
+                <h1 class="text-2xl sm:text-4xl font-black tracking-tight">Despacho de Salidas en Garita</h1>
+                <p class="text-emerald-100 text-sm mt-1">Apunte la pistola al código de barras o escriba la serie/cédula. El sistema busca de inmediato.</p>
+              </div>
+              
+              <div class="flex items-center gap-3">
+                <div class="text-center px-4 py-3 bg-emerald-900/60 rounded-2xl border-2 border-emerald-400 shadow-lg">
+                  <div id="statGaritaPendientes" class="text-3xl font-black text-emerald-300">0</div>
+                  <div class="text-[11px] text-emerald-200 uppercase font-black">Por Despachar</div>
+                </div>
+                <div class="text-center px-4 py-3 bg-slate-800/90 rounded-2xl border border-slate-700">
+                  <div id="statGaritaSalidas" class="text-3xl font-black text-emerald-400">0</div>
+                  <div class="text-[11px] text-slate-400 uppercase font-bold">Despachos Hoy</div>
+                </div>
+                <div class="text-center px-4 py-3 bg-slate-800/90 rounded-2xl border border-slate-700">
+                  <div id="statGaritaAfuera" class="text-3xl font-black text-amber-400">0</div>
+                  <div class="text-[11px] text-slate-400 uppercase font-bold">Equipos Afuera</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-6">
+              <form onsubmit="buscarEnGarita(event)" class="relative flex items-center">
+                <div class="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none text-emerald-400">
+                  <i data-lucide="barcode" class="w-8 h-8"></i>
+                </div>
+                <input 
+                  type="text" 
+                  id="inputGaritaBusqueda" 
+                  class="w-full pl-16 pr-36 py-5 bg-slate-800/95 text-white placeholder-slate-400 font-mono text-xl sm:text-2xl font-black rounded-2xl border-2 border-emerald-500/60 focus:border-emerald-400 focus:outline-none focus:ring-4 focus:ring-emerald-500/30 shadow-inner tracking-wider"
+                  placeholder="ESCANEE AQUÍ LA SERIE O CÉDULA..." 
+                  autofocus
+                  autocomplete="off"
+                >
+                <div class="absolute inset-y-0 right-2 flex items-center pr-2">
+                  <button type="submit" class="touch-btn px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-base rounded-xl shadow-lg transition flex items-center gap-2">
+                    <span>BUSCAR</span>
+                    <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                  </button>
+                </div>
+              </form>
+              <div class="flex items-center justify-between text-xs text-slate-400 mt-2 px-1">
+                <span>La pistola de códigos presiona Enter automáticamente al escanear.</span>
+                <button onclick="limpiarGarita()" class="text-emerald-400 font-bold hover:underline">Limpiar / Nuevo escaneo</button>
+              </div>
+            </div>
+          </div>
+
+          <div id="contenedorResultadoGarita" class="hidden transition-all duration-300"></div>
+
+          <!-- TABLA DE EQUIPOS AUTORIZADOS POR SISTEMAS (LISTOS PARA SALIDA) -->
+          <div class="bg-white rounded-3xl shadow-sm border-2 border-emerald-500/40 p-6 relative overflow-hidden">
+            <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600"></div>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-emerald-100">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black">
+                  <i data-lucide="clipboard-check" class="w-6 h-6"></i>
+                </div>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h2 class="font-black text-lg text-slate-900">Laptops Autorizadas por Sistemas para Salir Hoy</h2>
+                    <span id="badgeConteoPendientesGarita" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-600 text-white shadow-sm">0 pendientes</span>
+                  </div>
+                  <p class="text-xs text-slate-500 font-medium">Asesores autorizados por Sistemas TI. Puede presionar el botón verde de salida o apuntar la pistola de códigos a la serie del equipo.</p>
+                </div>
+              </div>
+              <button onclick="cargarTodoGarita()" class="touch-btn text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl flex items-center gap-1.5 transition self-start sm:self-auto">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar Lista
+              </button>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="text-xs uppercase bg-emerald-50/70 text-emerald-950 font-black border-b border-emerald-200">
+                  <tr>
+                    <th class="py-3 px-4">Asesor</th>
+                    <th class="py-3 px-4">Cédula</th>
+                    <th class="py-3 px-4">N° Serie Laptop</th>
+                    <th class="py-3 px-4">Modelo</th>
+                    <th class="py-3 px-4">Líder / Área</th>
+                    <th class="py-3 px-4">Aprobado Por</th>
+                    <th class="py-3 px-4 text-center">Acción Inmediata</th>
+                  </tr>
+                </thead>
+                <tbody id="tablaPendientesDespachoGarita" class="divide-y divide-slate-100 font-medium">
+                  <!-- Se llena dinámicamente -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div class="flex items-center gap-2">
+                <i data-lucide="clock" class="w-5 h-5 text-emerald-600"></i>
+                <h2 class="font-extrabold text-lg text-slate-900">Salidas Despachadas en este Turno</h2>
+              </div>
+              <button onclick="cargarDespachosRecientesGarita()" class="text-xs text-blue-600 hover:underline flex items-center gap-1 font-bold">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+              </button>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead class="text-xs uppercase bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                  <tr>
+                    <th class="py-3 px-4">Hora Salida</th>
+                    <th class="py-3 px-4">Asesor</th>
+                    <th class="py-3 px-4">Cédula</th>
+                    <th class="py-3 px-4">N° de Serie</th>
+                    <th class="py-3 px-4">Modelo</th>
+                    <th class="py-3 px-4">Líder de Área</th>
+                    <th class="py-3 px-4">Guardia</th>
+                    <th class="py-3 px-4 text-center">Estado</th>
+                  </tr>
+                </thead>
+                <tbody id="tablaDespachosHoy" class="divide-y divide-slate-100 font-medium"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="garita-vista-bitacora" class="hidden space-y-4">
+          <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+              <div>
+                <h2 class="text-xl font-extrabold text-slate-900">Bitácora de Control Diario de Garita</h2>
+                <p class="text-xs text-slate-500">Historial de computadoras que salieron hoy para que los guardias puedan consultar o anotar.</p>
+              </div>
+              <div class="flex gap-2">
+                <input type="text" id="filtroBitacoraGarita" placeholder="Buscar por asesor o serie..." class="px-3 py-2 text-xs border rounded-lg" oninput="filtrarBitacoraGarita()">
+                <button onclick="imprimirBitacoraGarita()" class="touch-btn px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-bold flex items-center gap-1.5">
+                  <i data-lucide="printer" class="w-4 h-4"></i> Imprimir Reporte de Turno
+                </button>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm" id="tablaBitacoraImprimible">
+                <thead class="bg-slate-100 text-slate-700 text-xs uppercase font-extrabold">
+                  <tr>
+                    <th class="p-3">#</th>
+                    <th class="p-3">Hora Salida</th>
+                    <th class="p-3">Nombre del Asesor</th>
+                    <th class="p-3">Cédula</th>
+                    <th class="p-3">N° de Serie</th>
+                    <th class="p-3">Modelo</th>
+                    <th class="p-3">Líder</th>
+                    <th class="p-3">Guardia</th>
+                  </tr>
+                </thead>
+                <tbody id="cuerpoBitacoraGarita" class="divide-y divide-slate-100 text-xs font-medium"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- MODULO 3: SISTEMAS (APROBACIONES & REEMPLAZOS) -->
+      <!-- ============================================================= -->
+      <section id="modulo-sistemas" class="hidden space-y-6">
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <div class="text-xs font-bold text-slate-500 uppercase">Solicitudes Hoy</div>
+            <div id="statSistemasTotal" class="text-2xl font-black text-slate-900 mt-1">0</div>
+          </div>
+          <div class="bg-amber-50 p-4 rounded-xl border border-amber-200 shadow-sm">
+            <div class="text-xs font-bold text-amber-700 uppercase">Por Revisar</div>
+            <div id="statSistemasPendientes" class="text-2xl font-black text-amber-600 mt-1">0</div>
+          </div>
+          <div class="bg-emerald-50 p-4 rounded-xl border border-emerald-200 shadow-sm">
+            <div class="text-xs font-bold text-emerald-700 uppercase">Aprobadas Hoy</div>
+            <div id="statSistemasAprobadas" class="text-2xl font-black text-emerald-600 mt-1">0</div>
+          </div>
+          <div class="bg-blue-50 p-4 rounded-xl border border-blue-200 shadow-sm">
+            <div class="text-xs font-bold text-blue-700 uppercase">Salieron Hoy</div>
+            <div id="statSistemasSalieron" class="text-2xl font-black text-blue-600 mt-1">0</div>
+          </div>
+          <div class="bg-purple-50 p-4 rounded-xl border-2 border-purple-300 shadow-sm cursor-pointer hover:bg-purple-100 transition" onclick="filtrarSoloAfueraEnSistemas()" title="Clic para ver todos los equipos afuera sin importar la fecha">
+            <div class="text-[11px] font-black text-purple-700 uppercase flex items-center justify-between">
+              <span>Afuera (Total)</span>
+              <i data-lucide="external-link" class="w-3.5 h-3.5 text-purple-600"></i>
+            </div>
+            <div id="statSistemasTotalAfuera" class="text-2xl font-black text-purple-700 mt-1">0</div>
+          </div>
+          <div class="bg-slate-100 p-4 rounded-xl border border-slate-200 shadow-sm">
+            <div class="text-xs font-bold text-slate-600 uppercase">Retornadas Hoy</div>
+            <div id="statSistemasRetornadas" class="text-2xl font-black text-slate-700 mt-1">0</div>
+          </div>
+          <div class="bg-rose-50 p-4 rounded-xl border border-rose-200 shadow-sm">
+            <div class="text-xs font-bold text-rose-700 uppercase">Rechazadas</div>
+            <div id="statSistemasRechazadas" class="text-2xl font-black text-rose-600 mt-1">0</div>
+          </div>
+        </div>
+
+        <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-xl font-black text-slate-800">Panel Central de Sistemas</h2>
+              <p class="text-xs text-slate-500">Autorice lotes, reemplace equipos averiados o imprima la hoja formal con políticas.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="aprobarLoteSistemas()" class="touch-btn px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm rounded-xl shadow flex items-center gap-2">
+                <i data-lucide="check-check" class="w-4 h-4"></i>
+                <span>Aprobar Todo lo Pendiente</span>
+              </button>
+              <button onclick="depurarNoSalidosHoy()" class="touch-btn px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm rounded-xl shadow flex items-center gap-2">
+                <i data-lucide="user-x" class="w-4 h-4"></i>
+                <span>Depurar No Salidos</span>
+              </button>
+              <button onclick="abrirModalDirectorioLideres()" class="touch-btn px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm rounded-xl shadow flex items-center gap-2" title="Administrar los 27 líderes oficiales">
+                <i data-lucide="user-plus" class="w-4 h-4"></i>
+                <span>Gestionar Líderes</span>
+              </button>
+              <button onclick="abrirHojaOficialImpresion()" class="touch-btn px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl shadow flex items-center gap-2">
+                <i data-lucide="printer" class="w-4 h-4"></i>
+                <span>Hoja Oficial con Políticas</span>
+              </button>
+              <button onclick="exportarExcelSistemas()" class="touch-btn px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-semibold text-sm rounded-xl shadow flex items-center gap-2">
+                <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-400"></i>
+                <span>Exportar Excel</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-slate-100">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Fecha de Salida</label>
+              <input type="date" id="filtroSistemasFecha" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" onchange="cargarSolicitudesSistemas()">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Líder del Área</label>
+              <select id="filtroSistemasLider" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" onchange="cargarSolicitudesSistemas()">
+                <option value="TODOS">Todos los Líderes</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Estado</label>
+              <select id="filtroSistemasEstado" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" onchange="cargarSolicitudesSistemas()">
+                <option value="TODOS">Todos los Estados</option>
+                <option value="PENDIENTE" selected>Solo Pendientes</option>
+                <option value="APROBADO">Aprobados</option>
+                <option value="SALIO">En Teletrabajo (Salió)</option>
+                <option value="RETORNADO">Retornados</option>
+                <option value="NO_SALIO">No Retiró / Desistió</option>
+                <option value="RECHAZADO">Rechazados</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-600 mb-1">Buscar Asesor / Serie</label>
+              <input type="text" id="filtroSistemasSearch" placeholder="Cédula, nombre o serie..." class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" oninput="debounceCargarSistemas()">
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-bold border-b border-slate-200">
+                <tr>
+                  <th class="p-4 w-10">
+                    <input type="checkbox" id="checkSelectAll" onchange="toggleSelectAll(this)" class="rounded text-blue-600">
+                  </th>
+                  <th class="p-4">Asesor</th>
+                  <th class="p-4">Cédula</th>
+                  <th class="p-4">Líder / Área</th>
+                  <th class="p-4">N° de Serie</th>
+                  <th class="p-4">Modelo</th>
+                  <th class="p-4">Fecha Salida</th>
+                  <th class="p-4 text-center">Estado</th>
+                  <th class="p-4 text-right">Acciones Sistemas</th>
+                </tr>
+              </thead>
+              <tbody id="tablaSolicitudesSistemas" class="divide-y divide-slate-100 font-medium"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- MODULO 4: REPORTE POR LÍDERES (SISTEMAS) -->
+      <!-- ============================================================= -->
+      <section id="modulo-reporte-lideres" class="hidden space-y-6">
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+            <div>
+              <h1 class="text-2xl font-black text-slate-800">Control de Equipos por Líder</h1>
+              <p class="text-xs text-slate-500 mt-1">Supervise qué líder sacó máquinas, cuántas siguen afuera y cuáles ya fueron devueltas.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-500 uppercase">Ver Equipos</label>
+                <select id="reporteFiltroEstado" class="px-3 py-2 text-xs font-bold border-2 border-purple-200 bg-purple-50 text-purple-900 rounded-lg focus:outline-none" onchange="cargarReporteLideres()">
+                  <option value="SOLO_AFUERA" selected>🚨 Solo Pendientes de Devolución (Afuera)</option>
+                  <option value="TODOS">Todos (Afuera, Retornados, etc.)</option>
+                  <option value="RETORNADO">Solo Devueltos / Retornados</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-500 uppercase">Líder de Área</label>
+                <select id="reporteFiltroLider" class="px-3 py-2 text-xs border border-slate-300 rounded-lg" onchange="cargarReporteLideres()">
+                  <option value="TODOS">Todos los Líderes</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-500 uppercase">Desde (Opcional)</label>
+                <input type="date" id="reporteFechaDesde" class="px-3 py-2 text-xs border border-slate-300 rounded-lg" onchange="cargarReporteLideres()">
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-500 uppercase">Hasta (Opcional)</label>
+                <input type="date" id="reporteFechaHasta" class="px-3 py-2 text-xs border border-slate-300 rounded-lg" onchange="cargarReporteLideres()">
+              </div>
+              <div class="pt-4">
+                <button type="button" onclick="limpiarFiltrosReporteLideres()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border transition" title="Ver todo lo que está afuera actualmente">
+                  Restablecer
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div id="contenedorReporteLideres" class="mt-6 space-y-6"></div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- MODULO 5: RETORNO DE EQUIPOS (GARITA Y SISTEMAS) -->
+      <!-- ============================================================= -->
+      <section id="modulo-retornos" class="hidden space-y-6">
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+            <div>
+              <h1 class="text-2xl font-black text-slate-800">Reingreso y Retorno de Equipos (Check-in)</h1>
+              <p class="text-slate-500 text-xs mt-0.5">Escanee la serie de la máquina que devuelve el asesor para dar por cerrado el préstamo.</p>
+            </div>
+            
+            <form onsubmit="ejecutarRetornoPorEscaneo(event)" class="flex items-center gap-2">
+              <input 
+                type="text" 
+                id="inputEscaneoRetorno" 
+                placeholder="Escanee serie para retorno..." 
+                class="px-4 py-2 text-sm font-mono font-bold uppercase border-2 border-slate-300 rounded-xl focus:border-blue-600 focus:outline-none w-64"
+              >
+              <button type="submit" class="touch-btn px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow">
+                Registrar Retorno
+              </button>
+            </form>
+          </div>
+
+          <div class="mt-6 overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-bold border-b border-slate-200">
+                <tr>
+                  <th class="p-3">Asesor</th>
+                  <th class="p-3">Cédula</th>
+                  <th class="p-3">Líder</th>
+                  <th class="p-3">N° Serie</th>
+                  <th class="p-3">Modelo</th>
+                  <th class="p-3">Fecha y Hora de Salida</th>
+                  <th class="p-3">Guardia que Despachó</th>
+                  <th class="p-3 text-right">Confirmar Retorno</th>
+                </tr>
+              </thead>
+              <tbody id="tablaEquiposFuera" class="divide-y divide-slate-100 font-medium"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- MODULO 6: TRAZABILIDAD & AUDITORÍA (SISTEMAS) -->
+      <!-- ============================================================= -->
+      <section id="modulo-auditoria" class="hidden space-y-6">
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <h2 class="text-lg font-black text-slate-800 mb-1">🔍 Consulta de Hoja de Vida y Trazabilidad por Máquina</h2>
+          <p class="text-xs text-slate-500 mb-4">Ingrese el número de serie de una laptop o la cédula de un asesor para ver todos los préstamos históricos, cambios de equipo y retornos.</p>
+          
+          <form onsubmit="consultarTrazabilidad(event)" class="flex gap-2 max-w-lg">
+            <input type="text" id="inputTrazabilidadQuery" required placeholder="Ej: D6QHM72 o 1725665127" class="flex-1 px-4 py-2.5 text-sm font-mono font-bold uppercase border rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            <button type="submit" class="touch-btn px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold">Consultar Historial</button>
+          </form>
+
+          <div id="resultadoTrazabilidad" class="mt-6 hidden"></div>
+        </div>
+
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="text-lg font-black text-slate-800">Bitácora Global de Auditoría</h2>
+              <p class="text-slate-500 text-xs">Registro cronológico de operaciones realizadas por Sistemas y Garita.</p>
+            </div>
+            <button onclick="cargarAuditoria()" class="touch-btn px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border flex items-center gap-1.5">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm font-mono">
+              <thead class="bg-slate-900 text-slate-200 uppercase text-xs font-bold">
+                <tr>
+                  <th class="p-3">Timestamp</th>
+                  <th class="p-3">Acción</th>
+                  <th class="p-3">Operador</th>
+                  <th class="p-3">Detalles</th>
+                </tr>
+              </thead>
+              <tbody id="tablaAuditoria" class="divide-y divide-slate-200 text-xs"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- MODAL: AGREGAR / EDITAR ASESOR EN EQUIPO HABITUAL -->
+  <div id="modalAsesorHabitual" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-xl max-w-md w-full p-6 space-y-4">
+      <div class="flex items-center gap-3 text-purple-600">
+        <i data-lucide="user-plus" class="w-6 h-6"></i>
+        <h3 class="text-lg font-bold text-slate-900">Agregar Asesor a Mi Equipo Habitual</h3>
+      </div>
+      <p class="text-xs text-slate-600">Este asesor quedará guardado permanentemente para que solo tengas que seleccionarlo con un checkbox.</p>
+      
+      <form onsubmit="guardarAsesorEnHabitual(event)" class="space-y-3">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Cédula *</label>
+          <input type="text" id="modalHabCedula" required placeholder="Ej: 1725665127" class="w-full p-2.5 text-sm font-mono border rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nombres y Apellidos *</label>
+          <input type="text" id="modalHabNombres" required placeholder="Ej: ANRANGO COLLAGUAZO JENNIFER" class="w-full p-2.5 text-sm border rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">N° Serie Laptop *</label>
+            <input type="text" id="modalHabSerie" required placeholder="Ej: D6QHM72" class="w-full p-2.5 text-sm font-mono font-bold uppercase border rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Modelo</label>
+            <input type="text" id="modalHabModelo" value="DELL" class="w-full p-2.5 text-sm font-bold uppercase border rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" onclick="cerrarModalAsesorHabitual()" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl">Cancelar</button>
+          <button type="submit" class="px-5 py-2 text-sm font-black bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow">Guardar en Mi Equipo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: GESTIONAR DIRECTORIO DE LÍDERES (SISTEMAS) -->
+  <div id="modalDirectorioLideres" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-xl max-w-lg w-full p-6 space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <div class="flex items-center gap-2 text-purple-600">
+          <i data-lucide="users" class="w-6 h-6"></i>
+          <h3 class="text-lg font-black text-slate-900">Directorio Oficial de Líderes</h3>
+        </div>
+        <button onclick="cerrarModalDirectorioLideres()" class="text-slate-400 hover:text-slate-600">✕</button>
+      </div>
+
+      <form onsubmit="agregarLiderDirectorio(event)" class="flex gap-2">
+        <input type="text" id="nuevoLiderNombre" required placeholder="Nombre del nuevo líder..." class="flex-1 p-2.5 text-sm border rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+        <button type="submit" class="px-4 py-2.5 bg-purple-600 text-white font-bold text-xs rounded-xl shadow">➕ Agregar Líder</button>
+      </form>
+
+      <div class="max-h-60 overflow-y-auto border rounded-2xl p-2 divide-y divide-slate-100" id="listaLideresDirectorioModal">
+        <!-- Dinámico -->
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: REEMPLAZAR EQUIPO POR AVERÍA (SISTEMAS) -->
+  <div id="modalCambiarEquipo" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+      <div class="flex items-center gap-3 text-blue-600">
+        <i data-lucide="refresh-cw" class="w-6 h-6"></i>
+        <h3 class="text-lg font-bold text-slate-900">Reemplazar / Cambiar Equipo</h3>
+      </div>
+      <p class="text-xs text-slate-600">Asignar una nueva máquina al asesor <strong id="modalCambiarNombre"></strong>:</p>
+      <input type="hidden" id="modalCambiarId">
+      <div>
+        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Nuevo Código / Serie de Máquina *</label>
+        <input type="text" id="modalCambiarNuevoCodigo" required placeholder="Ej: 7KR5W1" class="w-full p-2.5 text-sm font-mono font-bold uppercase border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Modelo / Marca</label>
+        <input type="text" id="modalCambiarNuevoModelo" value="DELL" class="w-full p-2.5 text-sm font-bold uppercase border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+      </div>
+      <div>
+        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Motivo del Cambio</label>
+        <input type="text" id="modalCambiarMotivo" placeholder="Ej: Laptop no enciende..." class="w-full p-2.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+      </div>
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="cerrarModalCambiarEquipo()" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+        <button onclick="confirmarCambioEquipoSistemas()" class="px-4 py-2 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow">Guardar Cambio</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: RECHAZAR SOLICITUD (SISTEMAS) -->
+  <div id="modalRechazar" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+      <div class="flex items-center gap-3 text-rose-600">
+        <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+        <h3 class="text-lg font-bold text-slate-900">Rechazar Solicitud de Salida</h3>
+      </div>
+      <p class="text-xs text-slate-600">Indique el motivo formal por el cual se rechaza la salida:</p>
+      <input type="hidden" id="modalRechazarId">
+      <textarea id="modalRechazarMotivo" rows="3" class="w-full p-3 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-rose-500 focus:outline-none" placeholder="Ej: Equipo asignado a otra campaña..."></textarea>
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="cerrarModalRechazar()" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+        <button onclick="confirmarRechazoSistemas()" class="px-4 py-2 text-sm font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow">Confirmar Rechazo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-24 opacity-0 transition-all duration-300 flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl text-sm font-bold text-white pointer-events-none">
+    <i id="toastIcon" data-lucide="check-circle" class="w-5 h-5"></i>
+    <span id="toastMessage">Operación realizada con éxito</span>
+  </div>
+
+  <!-- Script principal -->
+  <script src="/js/app.js"></script>
+</body>
+</html>
