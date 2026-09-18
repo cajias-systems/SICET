@@ -444,7 +444,7 @@ async function buscarEnGarita(e) {
 
     container.classList.remove('hidden');
 
-    if (!json.ok || !json.encontrado || json.data.length === 0) {
+    if (!json.ok || !json.encontrado || !Array.isArray(json.data) || json.data.length === 0 || !json.data[0]) {
       playErrorSound();
       container.innerHTML = `
         <div class="bg-rose-50 border-4 border-rose-600 text-rose-950 p-6 rounded-3xl shadow-xl shake-error">
@@ -479,6 +479,7 @@ async function buscarEnGarita(e) {
 
 function renderizarResultadoGarita(item) {
   const container = document.getElementById('contenedorResultadoGarita');
+  if (!container || !item) return;
 
   if (item.estado === 'APROBADO') {
     container.innerHTML = `

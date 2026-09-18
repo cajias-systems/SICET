@@ -398,7 +398,7 @@ app.get('/api/areas', async (req, res) => {
 // 2. Obtener Lista de Líderes Registrados
 app.get('/api/lideres', async (req, res) => {
   try {
-    const lideres = db.prepare(`
+    const lideres = await db.prepare(`
       SELECT DISTINCT lider_nombre as nombre, area 
       FROM solicitudes 
       WHERE lider_nombre IS NOT NULL AND lider_nombre != ''
@@ -912,7 +912,7 @@ app.get('/api/garita/buscar', async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
 
     // Buscar coincidencia por cédula o serie exacta o parecida
-    const rows = db.prepare(`
+    const rows = await db.prepare(`
       SELECT * FROM solicitudes 
       WHERE (cedula = ? OR codigo_maquina = ? OR cedula LIKE ? OR codigo_maquina LIKE ?)
       ORDER BY 
@@ -1151,7 +1151,7 @@ app.get('/api/trazabilidad', async (req, res) => {
     const term = q.trim().toUpperCase();
 
     // Historial de solicitudes donde participó esa máquina o asesor
-    const historial = db.prepare(`
+    const historial = await db.prepare(`
       SELECT * FROM solicitudes 
       WHERE codigo_maquina = ? OR codigo_maquina_anterior = ? OR cedula = ?
       ORDER BY id DESC
@@ -1468,13 +1468,21 @@ app.get('/api/stats', async (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     const fecha = req.query.fecha || today;
 
-    const totalHoy = db.prepare('SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ?').get(fecha).count;
-    const pendientes = db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'PENDIENTE'").get(fecha).count;
-    const aprobadas = db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'APROBADO'").get(fecha).count;
-    const salieron = db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'SALIO'").get(fecha).count;
-    const retornados = db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'RETORNADO'").get(fecha).count;
-    const rechazados = db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'RECHAZADO'").get(fecha).count;
-    const equiposAfueraTotal = db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE estado = 'SALIO'").get().count;
+    const totalHoyRow = await db.prepare('SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ?').get(fecha);
+    const pendientesRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'PENDIENTE'").get(fecha);
+    const aprobadasRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'APROBADO'").get(fecha);
+    const salieronRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'SALIO'").get(fecha);
+    const retornadosRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'RETORNADO'").get(fecha);
+    const rechazadosRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'RECHAZADO'").get(fecha);
+    const equiposAfueraTotalRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE estado = 'SALIO'").get();
+
+    const totalHoy = totalHoyRow ? totalHoyRow.count : 0;
+    const pendientes = pendientesRow ? pendientesRow.count : 0;
+    const aprobadas = aprobadasRow ? aprobadasRow.count : 0;
+    const salieron = salieronRow ? salieronRow.count : 0;
+    const retornados = retornadosRow ? retornadosRow.count : 0;
+    const rechazados = rechazadosRow ? rechazadosRow.count : 0;
+    const equiposAfueraTotal = equiposAfueraTotalRow ? equiposAfueraTotalRow.count : 0;
 
     res.json({
       ok: true,
