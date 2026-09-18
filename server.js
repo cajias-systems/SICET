@@ -22,20 +22,20 @@ if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
 }
 
 // Función auxiliar para registrar auditoría
-function registrarAuditoria(solicitudId, accion, usuario, detalles) {
+async function registrarAuditoria(solicitudId, accion, usuario, detalles) {
   try {
-    const stmt = db.prepare(`
+    const stmt = await db.prepare(`
       INSERT INTO auditoria (solicitud_id, accion, usuario, detalles)
       VALUES (?, ?, ?, ?)
     `);
-    stmt.run(solicitudId, accion, usuario, detalles);
+    await stmt.run(solicitudId, accion, usuario, detalles);
   } catch (err) {
     console.error('Error al registrar auditoría:', err);
   }
 }
 
 // Función auxiliar para verificar si un equipo o asesor ya está fuera en teletrabajo
-function verificarDisponibilidadEquipo(codigoMaquina, cedula, idIgnorar = null) {
+async function verificarDisponibilidadEquipo(codigoMaquina, cedula, idIgnorar = null) {
   const normCodigo = codigoMaquina.trim().toUpperCase();
   const normCedula = cedula.trim();
 
@@ -46,7 +46,7 @@ function verificarDisponibilidadEquipo(codigoMaquina, cedula, idIgnorar = null) 
     queryEquipo += " AND id != ?";
     paramsEquipo.push(idIgnorar);
   }
-  const ocupadoEquipo = db.prepare(queryEquipo).get(...paramsEquipo);
+  const ocupadoEquipo = await db.prepare(queryEquipo).get(...paramsEquipo);
   if (ocupadoEquipo) {
     return {
       disponible: false,
@@ -61,7 +61,7 @@ function verificarDisponibilidadEquipo(codigoMaquina, cedula, idIgnorar = null) 
     queryCedula += " AND id != ?";
     paramsCedula.push(idIgnorar);
   }
-  const ocupadoCedula = db.prepare(queryCedula).get(...paramsCedula);
+  const ocupadoCedula = await db.prepare(queryCedula).get(...paramsCedula);
   if (ocupadoCedula) {
     return {
       disponible: false,
@@ -73,7 +73,7 @@ function verificarDisponibilidadEquipo(codigoMaquina, cedula, idIgnorar = null) 
 }
 
 // Función auxiliar para auto-sincronizar asesores al catálogo personal del líder
-function sincronizarAsesorAlCatalogo(liderNombre, cedula, nombres, codigoMaquina, modelo, tipoEquipo, area) {
+async function sincronizarAsesorAlCatalogo(liderNombre, cedula, nombres, codigoMaquina, modelo, tipoEquipo, area) {
   if (!liderNombre || !cedula || !nombres || !codigoMaquina) return;
   try {
     const stmt = db.prepare(`
@@ -87,7 +87,7 @@ function sincronizarAsesorAlCatalogo(liderNombre, cedula, nombres, codigoMaquina
         area = excluded.area,
         activo = 1
     `);
-    stmt.run(
+    await stmt.run(
       liderNombre.trim(),
       cedula.trim(),
       nombres.trim(),
@@ -106,7 +106,7 @@ function sincronizarAsesorAlCatalogo(liderNombre, cedula, nombres, codigoMaquina
 // ==========================================
 
 // Iniciar sesión (Soporta admin TI, guardia de garita y los 27 líderes por combo box)
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password, lider_nombre } = req.body;
     if (!password) {
@@ -118,14 +118,14 @@ app.post('/api/auth/login', (req, res) => {
       const nombreFinalLider = (lider_nombre || 'Líder de Área').trim();
       
       // Comprobar contraseña de líder (lider123 o configurable)
-      const userLiderDb = db.prepare("SELECT password FROM usuarios WHERE username = 'lider'").get();
+      const userLiderDb = await db.prepare("SELECT password FROM usuarios WHERE username = 'lider'").get();
       const claveEsperada = userLiderDb ? userLiderDb.password : 'lider123';
 
       if (password.trim() !== claveEsperada) {
         return res.status(401).json({ ok: false, error: 'Contraseña de Líder incorrecta.' });
       }
 
-      registrarAuditoria(null, 'LOGIN_LIDER', nombreFinalLider, `Acceso exitoso al portal de líderes: ${nombreFinalLider}`);
+      await registrarAuditoria(null, 'LOGIN_LIDER', nombreFinalLider, `Acceso exitoso al portal de líderes: ${nombreFinalLider}`);
 
       return res.json({
         ok: true,
@@ -144,13 +144,13 @@ app.post('/api/auth/login', (req, res) => {
       return res.status(400).json({ ok: false, error: 'Usuario requerido.' });
     }
 
-    const user = db.prepare('SELECT id, username, password, nombre, rol, area FROM usuarios WHERE username = ?').get(username.trim());
+    const user = await db.prepare('SELECT id, username, password, nombre, rol, area FROM usuarios WHERE username = ?').get(username.trim());
 
     if (!user || user.password !== password.trim()) {
       return res.status(401).json({ ok: false, error: 'Usuario o contraseña incorrectos.' });
     }
 
-    registrarAuditoria(null, 'LOGIN_EXITOSO', user.nombre, `Inicio de sesión con rol [${user.rol}]`);
+    await registrarAuditoria(null, 'LOGIN_EXITOSO', user.nombre, `Inicio de sesión con rol [${user.rol}]`);
 
     res.json({
       ok: true,
@@ -168,20 +168,20 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // Cambiar contraseña
-app.patch('/api/auth/cambiar-clave', (req, res) => {
+app.patch('/api/auth/cambiar-clave', async (req, res) => {
   try {
     const { username, clave_actual, nueva_clave } = req.body;
     if (!username || !clave_actual || !nueva_clave) {
       return res.status(400).json({ ok: false, error: 'Datos incompletos.' });
     }
 
-    const user = db.prepare('SELECT * FROM usuarios WHERE username = ?').get(username.trim());
+    const user = await db.prepare('SELECT * FROM usuarios WHERE username = ?').get(username.trim());
     if (!user || user.password !== clave_actual.trim()) {
       return res.status(401).json({ ok: false, error: 'La contraseña actual es incorrecta.' });
     }
 
-    db.prepare('UPDATE usuarios SET password = ? WHERE username = ?').run(nueva_clave.trim(), username.trim());
-    registrarAuditoria(null, 'CAMBIO_CLAVE', user.nombre, 'Contraseña actualizada con éxito');
+    await db.prepare('UPDATE usuarios SET password = ? WHERE username = ?').run(nueva_clave.trim(), username.trim());
+    await registrarAuditoria(null, 'CAMBIO_CLAVE', user.nombre, 'Contraseña actualizada con éxito');
 
     res.json({ ok: true, message: 'Contraseña actualizada correctamente.' });
   } catch (error) {
@@ -208,9 +208,9 @@ function requireRole(allowedRoles) {
 // ==========================================
 
 // Obtener nómina de los 27 líderes oficiales
-app.get('/api/lideres-directorio', (req, res) => {
+app.get('/api/lideres-directorio', async (req, res) => {
   try {
-    const lideres = db.prepare('SELECT * FROM lideres_directorio WHERE activo = 1 ORDER BY nombre ASC').all();
+    const lideres = await db.prepare('SELECT * FROM lideres_directorio WHERE activo = 1 ORDER BY nombre ASC').all();
     res.json({ ok: true, data: lideres });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -218,7 +218,7 @@ app.get('/api/lideres-directorio', (req, res) => {
 });
 
 // Agregar nuevo líder al directorio (Sistemas)
-app.post('/api/lideres-directorio', requireRole(['sistemas']), (req, res) => {
+app.post('/api/lideres-directorio', requireRole(['sistemas']), async (req, res) => {
   try {
     const { nombre, area_default = 'Operaciones' } = req.body;
     if (!nombre || !nombre.trim()) {
@@ -226,8 +226,8 @@ app.post('/api/lideres-directorio', requireRole(['sistemas']), (req, res) => {
     }
 
     const stmt = db.prepare('INSERT INTO lideres_directorio (nombre, area_default) VALUES (?, ?)');
-    const r = stmt.run(nombre.trim(), area_default.trim());
-    registrarAuditoria(null, 'LIDER_AGREGADO', 'Sistemas', `Nuevo líder agregado al directorio: ${nombre.trim()}`);
+    const r = await stmt.run(nombre.trim(), area_default.trim());
+    await registrarAuditoria(null, 'LIDER_AGREGADO', 'Sistemas', `Nuevo líder agregado al directorio: ${nombre.trim()}`);
 
     res.json({ ok: true, id: r.lastInsertRowid, message: 'Líder agregado correctamente.' });
   } catch (error) {
@@ -240,7 +240,7 @@ app.post('/api/lideres-directorio', requireRole(['sistemas']), (req, res) => {
 // ==========================================
 
 // Obtener el equipo habitual de un líder con estado en tiempo real
-app.get('/api/lider/mi-equipo', (req, res) => {
+app.get('/api/lider/mi-equipo', async (req, res) => {
   try {
     const { lider_nombre } = req.query;
     if (!lider_nombre || !lider_nombre.trim()) {
@@ -248,22 +248,22 @@ app.get('/api/lider/mi-equipo', (req, res) => {
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    const asesores = db.prepare(`
+    const asesores = await db.prepare(`
       SELECT * FROM asesores_catalogo 
       WHERE lider_nombre = ? AND activo = 1 
       ORDER BY nombres ASC
     `).all(lider_nombre.trim());
 
     // Anotar cada asesor si ya tiene solicitud hoy o si la laptop está afuera
-    const resultado = asesores.map(a => {
-      const solicitudHoy = db.prepare(`
+    const resultado = await Promise.all(asesores.map(async a => {
+      const solicitudHoy = await db.prepare(`
         SELECT id, estado, fecha_salida 
         FROM solicitudes 
         WHERE cedula = ? AND fecha_salida = ?
         ORDER BY id DESC LIMIT 1
       `).get(a.cedula, today);
 
-      const laptopAfuera = db.prepare(`
+      const laptopAfuera = await db.prepare(`
         SELECT nombres, fecha_salida 
         FROM solicitudes 
         WHERE codigo_maquina = ? AND estado = 'SALIO'
@@ -276,7 +276,7 @@ app.get('/api/lider/mi-equipo', (req, res) => {
         laptop_afuera: laptopAfuera ? true : false,
         laptop_afuera_detalle: laptopAfuera ? `En teletrabajo con ${laptopAfuera.nombres} desde ${laptopAfuera.fecha_salida}` : null
       };
-    });
+    }));
 
     res.json({ ok: true, data: resultado });
   } catch (error) {
@@ -285,14 +285,14 @@ app.get('/api/lider/mi-equipo', (req, res) => {
 });
 
 // Agregar o editar asesor en el equipo habitual del líder
-app.post('/api/lider/mi-equipo', (req, res) => {
+app.post('/api/lider/mi-equipo', async (req, res) => {
   try {
     const { lider_nombre, cedula, nombres, codigo_maquina, modelo, tipo_equipo, area } = req.body;
     if (!lider_nombre || !cedula || !nombres || !codigo_maquina) {
       return res.status(400).json({ ok: false, error: 'Líder, cédula, nombres y código de máquina son obligatorios.' });
     }
 
-    sincronizarAsesorAlCatalogo(lider_nombre, cedula, nombres, codigo_maquina, modelo, tipo_equipo, area);
+    await sincronizarAsesorAlCatalogo(lider_nombre, cedula, nombres, codigo_maquina, modelo, tipo_equipo, area);
 
     res.json({ ok: true, message: 'Asesor guardado en el equipo habitual.' });
   } catch (error) {
@@ -301,10 +301,10 @@ app.post('/api/lider/mi-equipo', (req, res) => {
 });
 
 // Eliminar asesor del equipo habitual del líder
-app.delete('/api/lider/mi-equipo/:id', (req, res) => {
+app.delete('/api/lider/mi-equipo/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    db.prepare('DELETE FROM asesores_catalogo WHERE id = ?').run(id);
+    await db.prepare('DELETE FROM asesores_catalogo WHERE id = ?').run(id);
     res.json({ ok: true, message: 'Asesor removido de su equipo habitual.' });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -312,7 +312,7 @@ app.delete('/api/lider/mi-equipo/:id', (req, res) => {
 });
 
 // AUTORIZAR SALIDA DE ASESORES HABITUALES EN 1 CLIC
-app.post('/api/lider/autorizar-lote-habitual', (req, res) => {
+app.post('/api/lider/autorizar-lote-habitual', async (req, res) => {
   try {
     const { lider_nombre, asesores_ids, asesores: asesoresDirectos, fecha_salida, fecha_retorno_estimada, observaciones, area } = req.body;
 
@@ -323,7 +323,7 @@ app.post('/api/lider/autorizar-lote-habitual', (req, res) => {
     let asesores = [];
     if (Array.isArray(asesores_ids) && asesores_ids.length > 0) {
       const placeholders = asesores_ids.map(() => '?').join(',');
-      asesores = db.prepare(`SELECT * FROM asesores_catalogo WHERE id IN (${placeholders})`).all(...asesores_ids);
+      asesores = await db.prepare(`SELECT * FROM asesores_catalogo WHERE id IN (${placeholders})`).all(...asesores_ids);
     } else if (Array.isArray(asesoresDirectos) && asesoresDirectos.length > 0) {
       asesores = asesoresDirectos;
     } else {
@@ -333,7 +333,7 @@ app.post('/api/lider/autorizar-lote-habitual', (req, res) => {
     const today = new Date().toISOString().slice(0, 10);
     const targetFecha = fecha_salida || today;
 
-    const insertStmt = db.prepare(`
+    const insertStmt = await db.prepare(`
       INSERT INTO solicitudes 
       (cedula, nombres, area, lider_nombre, codigo_maquina, modelo, tipo_equipo, fecha_salida, fecha_retorno_estimada, estado, observaciones)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', ?)
@@ -342,41 +342,37 @@ app.post('/api/lider/autorizar-lote-habitual', (req, res) => {
     let insertados = 0;
     const omitidos = [];
 
-    const transaccion = db.transaction(() => {
-      for (const a of asesores) {
-        // Validar si ya está en la calle
-        const disp = verificarDisponibilidadEquipo(a.codigo_maquina, a.cedula);
-        if (!disp.disponible) {
-          omitidos.push(`${a.nombres}: ${disp.error}`);
-          continue;
-        }
-
-        // Validar si ya tiene solicitud para hoy
-        const yaExiste = db.prepare('SELECT id FROM solicitudes WHERE cedula = ? AND fecha_salida = ?').get(a.cedula, targetFecha);
-        if (yaExiste) {
-          omitidos.push(`${a.nombres}: Ya tiene una solicitud registrada para hoy.`);
-          continue;
-        }
-
-        const r = insertStmt.run(
-          a.cedula,
-          a.nombres,
-          a.area || 'Operaciones',
-          lider_nombre,
-          a.codigo_maquina,
-          a.modelo || 'DELL',
-          a.tipo_equipo || 'Laptop',
-          targetFecha,
-          fecha_retorno_estimada || targetFecha,
-          (observaciones || 'Envío rápido desde Mi Equipo Habitual').trim()
-        );
-
-        registrarAuditoria(r.lastInsertRowid, 'SALIDA_HABITUAL_1CLIC', lider_nombre, `Autorizado desde equipo habitual: ${a.nombres} (${a.codigo_maquina})`);
-        insertados++;
+    for (const a of asesores) {
+      // Validar si ya está en la calle
+      const disp = await verificarDisponibilidadEquipo(a.codigo_maquina, a.cedula);
+      if (!disp.disponible) {
+        omitidos.push(`${a.nombres}: ${disp.error}`);
+        continue;
       }
-    });
 
-    transaccion();
+      // Validar si ya tiene solicitud para hoy
+      const yaExiste = await db.prepare('SELECT id FROM solicitudes WHERE cedula = ? AND fecha_salida = ?').get(a.cedula, targetFecha);
+      if (yaExiste) {
+        omitidos.push(`${a.nombres}: Ya tiene una solicitud registrada para hoy.`);
+        continue;
+      }
+
+      const r = await insertStmt.run(
+        a.cedula,
+        a.nombres,
+        a.area || 'Operaciones',
+        lider_nombre,
+        a.codigo_maquina,
+        a.modelo || 'DELL',
+        a.tipo_equipo || 'Laptop',
+        targetFecha,
+        fecha_retorno_estimada || targetFecha,
+        (observaciones || 'Envío rápido desde Mi Equipo Habitual').trim()
+      );
+
+      await registrarAuditoria(r.lastInsertRowid, 'SALIDA_HABITUAL_1CLIC', lider_nombre, `Autorizado desde equipo habitual: ${a.nombres} (${a.codigo_maquina})`);
+      insertados++;
+    }
 
     res.json({
       ok: true,
@@ -390,9 +386,9 @@ app.post('/api/lider/autorizar-lote-habitual', (req, res) => {
 });
 
 // 1. Obtener Áreas
-app.get('/api/areas', (req, res) => {
+app.get('/api/areas', async (req, res) => {
   try {
-    const areas = db.prepare('SELECT * FROM areas ORDER BY nombre ASC').all();
+    const areas = await db.prepare('SELECT * FROM areas ORDER BY nombre ASC').all();
     res.json({ ok: true, data: areas });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -400,7 +396,7 @@ app.get('/api/areas', (req, res) => {
 });
 
 // 2. Obtener Lista de Líderes Registrados
-app.get('/api/lideres', (req, res) => {
+app.get('/api/lideres', async (req, res) => {
   try {
     const lideres = db.prepare(`
       SELECT DISTINCT lider_nombre as nombre, area 
@@ -415,7 +411,7 @@ app.get('/api/lideres', (req, res) => {
 });
 
 // 3. Obtener Solicitudes con Filtros
-app.get('/api/solicitudes', (req, res) => {
+app.get('/api/solicitudes', async (req, res) => {
   try {
     const { fecha, area, estado, search, lider } = req.query;
     let query = 'SELECT * FROM solicitudes WHERE 1=1';
@@ -445,7 +441,7 @@ app.get('/api/solicitudes', (req, res) => {
 
     query += ' ORDER BY id DESC';
 
-    const solicitudes = db.prepare(query).all(...params);
+    const solicitudes = await db.prepare(query).all(...params);
     res.json({ ok: true, data: solicitudes });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -453,7 +449,7 @@ app.get('/api/solicitudes', (req, res) => {
 });
 
 // 4. Crear Solicitud Individual (Portal Líder) con Validación Anti-Duplicados
-app.post('/api/solicitudes', (req, res) => {
+app.post('/api/solicitudes', async (req, res) => {
   try {
     const {
       cedula,
@@ -476,18 +472,18 @@ app.post('/api/solicitudes', (req, res) => {
     }
 
     // Comprobación anti-duplicados (si la máquina o la persona ya están fuera)
-    const disp = verificarDisponibilidadEquipo(codigo_maquina, cedula);
+    const disp = await verificarDisponibilidadEquipo(codigo_maquina, cedula);
     if (!disp.disponible) {
       return res.status(400).json({ ok: false, error: disp.error });
     }
 
-    const stmt = db.prepare(`
+    const stmt = await db.prepare(`
       INSERT INTO solicitudes 
       (cedula, nombres, area, lider_nombre, codigo_maquina, modelo, tipo_equipo, fecha_salida, fecha_retorno_estimada, estado, observaciones)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', ?)
     `);
 
-    const result = stmt.run(
+    const result = await stmt.run(
       cedula.trim(),
       nombres.trim(),
       area.trim(),
@@ -500,7 +496,7 @@ app.post('/api/solicitudes', (req, res) => {
       (observaciones || '').trim()
     );
 
-    registrarAuditoria(
+    await registrarAuditoria(
       result.lastInsertRowid,
       'CREADA',
       lider_nombre || 'Líder',
@@ -509,7 +505,7 @@ app.post('/api/solicitudes', (req, res) => {
 
     // Auto-sincronizar al catálogo del líder para reutilización futura
     if (lider_nombre && lider_nombre.trim()) {
-      sincronizarAsesorAlCatalogo(
+      await sincronizarAsesorAlCatalogo(
         lider_nombre.trim(),
         cedula.trim(),
         nombres.trim(),
@@ -527,7 +523,7 @@ app.post('/api/solicitudes', (req, res) => {
 });
 
 // 5. Carga Masiva desde Excel / CSV (Portal Líder) con Validación Anti-Duplicados
-app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), (req, res) => {
+app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ ok: false, error: 'No se subió ningún archivo.' });
   }
@@ -552,71 +548,67 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), (req, res) => 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', ?)
     `);
 
-    const insertMany = db.transaction((items) => {
-      let insertados = 0;
-      const errores = [];
-      const today = new Date().toISOString().slice(0, 10);
+    let insertados = 0;
+    const errores = [];
+    const today = new Date().toISOString().slice(0, 10);
 
-      for (const row of items) {
-        const cedula = String(row['Cédula'] || row['Cedula'] || row['CEDULA'] || row['cedula'] || '').trim();
-        const nombres = String(row['Nombres'] || row['Nombre'] || row['NOMBRES'] || row['Apellidos y Nombres'] || '').trim();
-        const area = String(row['Área'] || row['Area'] || row['AREA'] || row['Campaña'] || 'General').trim();
-        const codigo = String(row['Código Máquina'] || row['Codigo Maquina'] || row['Serie'] || row['N° de Serie'] || row['CODIGO'] || row['Equipo'] || '').trim().toUpperCase();
-        const modelo = String(row['Modelo'] || row['MODELO'] || row['Marca'] || 'DELL').trim().toUpperCase();
-        const tipo = String(row['Tipo de Equipo'] || row['Tipo'] || 'Laptop').trim();
-        
-        let fechaSalida = String(row['Fecha Salida'] || row['Fecha'] || today).trim();
-        if (fechaSalida.includes('/')) {
-          const parts = fechaSalida.split('/');
-          if (parts.length === 3) {
-            fechaSalida = parts[2].length === 4 ? `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}` : fechaSalida;
-          }
-        }
-        
-        const fechaRetorno = String(row['Fecha Retorno'] || fechaSalida).trim();
-        const obs = String(row['Observaciones'] || row['Obs'] || '').trim();
-        const lider = String(row['Líder'] || row['Lider'] || lider_default).trim();
-
-        if (cedula && nombres && codigo) {
-          // Verificar disponibilidad anti-duplicados
-          const disp = verificarDisponibilidadEquipo(codigo, cedula);
-          if (!disp.disponible) {
-            errores.push(`${nombres} (${codigo}): ${disp.error}`);
-            continue;
-          }
-
-          const r = insertStmt.run(
-            cedula,
-            nombres,
-            area,
-            lider,
-            codigo,
-            modelo,
-            tipo,
-            fechaSalida,
-            fechaRetorno,
-            obs
-          );
-          registrarAuditoria(r.lastInsertRowid, 'CREADA_MASIVA', lider, `Carga masiva: ${nombres} (${codigo})`);
-          
-          // Auto-guardar en el catálogo habitual del líder
-          sincronizarAsesorAlCatalogo(lider, cedula, nombres, codigo, modelo, tipo, area);
-          
-          insertados++;
+    for (const row of rows) {
+      const cedula = String(row['Cédula'] || row['Cedula'] || row['CEDULA'] || row['cedula'] || '').trim();
+      const nombres = String(row['Nombres'] || row['Nombre'] || row['NOMBRES'] || row['Apellidos y Nombres'] || '').trim();
+      const area = String(row['Área'] || row['Area'] || row['AREA'] || row['Campaña'] || 'General').trim();
+      const codigo = String(row['Código Máquina'] || row['Codigo Maquina'] || row['Serie'] || row['N° de Serie'] || row['CODIGO'] || row['Equipo'] || '').trim().toUpperCase();
+      const modelo = String(row['Modelo'] || row['MODELO'] || row['Marca'] || 'DELL').trim().toUpperCase();
+      const tipo = String(row['Tipo de Equipo'] || row['Tipo'] || 'Laptop').trim();
+      
+      let fechaSalida = String(row['Fecha Salida'] || row['Fecha'] || today).trim();
+      if (fechaSalida.includes('/')) {
+        const parts = fechaSalida.split('/');
+        if (parts.length === 3) {
+          fechaSalida = parts[2].length === 4 ? `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}` : fechaSalida;
         }
       }
-      return { insertados, errores };
-    });
+      
+      const fechaRetorno = String(row['Fecha Retorno'] || fechaSalida).trim();
+      const obs = String(row['Observaciones'] || row['Obs'] || '').trim();
+      const lider = String(row['Líder'] || row['Lider'] || lider_default).trim();
 
-    const resultado = insertMany(rows);
+      if (cedula && nombres && codigo) {
+        // Verificar disponibilidad anti-duplicados
+        const disp = await verificarDisponibilidadEquipo(codigo, cedula);
+        if (!disp.disponible) {
+          errores.push(`${nombres} (${codigo}): ${disp.error}`);
+          continue;
+        }
+
+        const r = await insertStmt.run(
+          cedula,
+          nombres,
+          area,
+          lider,
+          codigo,
+          modelo,
+          tipo,
+          fechaSalida,
+          fechaRetorno,
+          obs
+        );
+        await registrarAuditoria(r.lastInsertRowid, 'CREADA_MASIVA', lider, `Carga masiva: ${nombres} (${codigo})`);
+        
+        // Auto-guardar en el catálogo habitual del líder
+        await sincronizarAsesorAlCatalogo(lider, cedula, nombres, codigo, modelo, tipo, area);
+        
+        insertados++;
+      }
+    }
+
     fs.unlinkSync(filePath);
 
     res.json({
       ok: true,
-      insertados: resultado.insertados,
+      insertados,
       totalFilas: rows.length,
-      errores: resultado.errores,
-      message: `Se importaron ${resultado.insertados} registros correctamente.${resultado.errores.length ? ` Se omitieron ${resultado.errores.length} por estar ya en teletrabajo.` : ''}`
+      errores,
+      message: `Se importaron ${insertados} registros correctamente.${errores.length ? ` Se omitieron ${errores.length} por estar ya en teletrabajo.` : ''}`
     });
   } catch (error) {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -625,7 +617,7 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), (req, res) => 
 });
 
 // 6. Descargar Plantilla Oficial Excel para Líderes (Con columna Modelo)
-app.get('/api/plantilla-excel', (req, res) => {
+app.get('/api/plantilla-excel', async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const templateData = [
@@ -670,7 +662,7 @@ app.get('/api/plantilla-excel', (req, res) => {
 });
 
 // 7. Aprobar Solicitud Individual (Sistemas)
-app.patch('/api/solicitudes/:id/aprobar', requireRole(['sistemas']), (req, res) => {
+app.patch('/api/solicitudes/:id/aprobar', requireRole(['sistemas']), async (req, res) => {
   try {
     const { id } = req.params;
     const { aprobado_por = 'Sistemas' } = req.body;
@@ -681,13 +673,13 @@ app.patch('/api/solicitudes/:id/aprobar', requireRole(['sistemas']), (req, res) 
       SET estado = 'APROBADO', aprobado_por = ?, aprobado_en = ? 
       WHERE id = ?
     `);
-    const result = stmt.run(aprobado_por, now, id);
+    const result = await stmt.run(aprobado_por, now, id);
 
     if (result.changes === 0) {
       return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
     }
 
-    registrarAuditoria(id, 'APROBADA', aprobado_por, 'Autorizado formalmente por Sistemas');
+    await registrarAuditoria(id, 'APROBADA', aprobado_por, 'Autorizado formalmente por Sistemas');
     res.json({ ok: true, message: 'Solicitud aprobada correctamente.' });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -695,7 +687,7 @@ app.patch('/api/solicitudes/:id/aprobar', requireRole(['sistemas']), (req, res) 
 });
 
 // 8. Rechazar Solicitud Individual (Sistemas)
-app.patch('/api/solicitudes/:id/rechazar', requireRole(['sistemas']), (req, res) => {
+app.patch('/api/solicitudes/:id/rechazar', requireRole(['sistemas']), async (req, res) => {
   try {
     const { id } = req.params;
     const { motivo_rechazo = 'No autorizado por Sistemas', aprobado_por = 'Sistemas' } = req.body;
@@ -706,13 +698,13 @@ app.patch('/api/solicitudes/:id/rechazar', requireRole(['sistemas']), (req, res)
       SET estado = 'RECHAZADO', motivo_rechazo = ?, aprobado_por = ?, aprobado_en = ? 
       WHERE id = ?
     `);
-    const result = stmt.run(motivo_rechazo, aprobado_por, now, id);
+    const result = await stmt.run(motivo_rechazo, aprobado_por, now, id);
 
     if (result.changes === 0) {
       return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
     }
 
-    registrarAuditoria(id, 'RECHAZADA', aprobado_por, `Motivo: ${motivo_rechazo}`);
+    await registrarAuditoria(id, 'RECHAZADA', aprobado_por, `Motivo: ${motivo_rechazo}`);
     res.json({ ok: true, message: 'Solicitud rechazada.' });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -720,12 +712,12 @@ app.patch('/api/solicitudes/:id/rechazar', requireRole(['sistemas']), (req, res)
 });
 
 // 8.1. Anular / Quitar Solicitud que no llegó a salir (Sistemas)
-app.patch('/api/solicitudes/:id/anular', requireRole(['sistemas']), (req, res) => {
+app.patch('/api/solicitudes/:id/anular', requireRole(['sistemas']), async (req, res) => {
   try {
     const { id } = req.params;
     const { motivo = 'Asesor desistió / No retiró el equipo al final del día', operador = 'Sistemas' } = req.body;
 
-    const solicitud = db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
+    const solicitud = await db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
     if (!solicitud) {
       return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
     }
@@ -743,9 +735,9 @@ app.patch('/api/solicitudes/:id/anular', requireRole(['sistemas']), (req, res) =
       SET estado = 'NO_SALIO', observaciones = ? 
       WHERE id = ?
     `);
-    stmt.run(obsFinal, id);
+    await stmt.run(obsFinal, id);
 
-    registrarAuditoria(id, 'ANULADA_NO_SALIO', operador, `Salida anulada para ${solicitud.nombres} (${solicitud.codigo_maquina}). Motivo: ${motivo}`);
+    await registrarAuditoria(id, 'ANULADA_NO_SALIO', operador, `Salida anulada para ${solicitud.nombres} (${solicitud.codigo_maquina}). Motivo: ${motivo}`);
 
     res.json({
       ok: true,
@@ -757,10 +749,10 @@ app.patch('/api/solicitudes/:id/anular', requireRole(['sistemas']), (req, res) =
 });
 
 // 8.2. Eliminar completamente solicitud si Sistemas lo desea
-app.delete('/api/solicitudes/:id', requireRole(['sistemas']), (req, res) => {
+app.delete('/api/solicitudes/:id', requireRole(['sistemas']), async (req, res) => {
   try {
     const { id } = req.params;
-    const solicitud = db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
+    const solicitud = await db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
     if (!solicitud) {
       return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
     }
@@ -772,8 +764,8 @@ app.delete('/api/solicitudes/:id', requireRole(['sistemas']), (req, res) => {
       });
     }
 
-    db.prepare('DELETE FROM solicitudes WHERE id = ?').run(id);
-    registrarAuditoria(id, 'ELIMINADA', 'Sistemas', `Solicitud eliminada de la base de datos: ${solicitud.nombres} (${solicitud.codigo_maquina})`);
+    await db.prepare('DELETE FROM solicitudes WHERE id = ?').run(id);
+    await registrarAuditoria(id, 'ELIMINADA', 'Sistemas', `Solicitud eliminada de la base de datos: ${solicitud.nombres} (${solicitud.codigo_maquina})`);
 
     res.json({ ok: true, message: 'Registro eliminado del sistema.' });
   } catch (error) {
@@ -782,7 +774,7 @@ app.delete('/api/solicitudes/:id', requireRole(['sistemas']), (req, res) => {
 });
 
 // 8.3. Depuración Masiva al Final del Día (Quitar todos los aprobados que no salieron)
-app.post('/api/solicitudes/depurar-no-salidos', requireRole(['sistemas']), (req, res) => {
+app.post('/api/solicitudes/depurar-no-salidos', requireRole(['sistemas']), async (req, res) => {
   try {
     const { fecha, operador = 'Sistemas' } = req.body;
     const targetFecha = fecha || new Date().toISOString().slice(0, 10);
@@ -798,10 +790,10 @@ app.post('/api/solicitudes/depurar-no-salidos', requireRole(['sistemas']), (req,
       WHERE fecha_salida = ? AND estado IN ('APROBADO', 'PENDIENTE')
     `);
 
-    const result = stmt.run(targetFecha);
+    const result = await stmt.run(targetFecha);
     const count = result.changes;
 
-    registrarAuditoria(null, 'DEPURACION_CIERRE_TURNO', operador, `Se anularon ${count} solicitudes aprobadas/pendientes que no fueron retiradas en la fecha ${targetFecha}`);
+    await registrarAuditoria(null, 'DEPURACION_CIERRE_TURNO', operador, `Se anularon ${count} solicitudes aprobadas/pendientes que no fueron retiradas en la fecha ${targetFecha}`);
 
     res.json({
       ok: true,
@@ -814,7 +806,7 @@ app.post('/api/solicitudes/depurar-no-salidos', requireRole(['sistemas']), (req,
 });
 
 // 9. Aprobación Masiva en 1 Clic (Sistemas)
-app.post('/api/solicitudes/aprobar-lote', requireRole(['sistemas']), (req, res) => {
+app.post('/api/solicitudes/aprobar-lote', requireRole(['sistemas']), async (req, res) => {
   try {
     const { ids, fecha, area, lider, aprobado_por = 'Sistemas' } = req.body;
     const now = new Date().toISOString();
@@ -826,16 +818,13 @@ app.post('/api/solicitudes/aprobar-lote', requireRole(['sistemas']), (req, res) 
         SET estado = 'APROBADO', aprobado_por = ?, aprobado_en = ? 
         WHERE id = ? AND estado = 'PENDIENTE'
       `);
-      const approveMany = db.transaction((idList) => {
-        for (const id of idList) {
-          const r = stmt.run(aprobado_por, now, id);
-          if (r.changes > 0) {
-            registrarAuditoria(id, 'APROBADA_LOTE', aprobado_por, 'Aprobación por lote seleccionada');
-            count++;
-          }
+      for (const id of ids) {
+        const r = await stmt.run(aprobado_por, now, id);
+        if (r.changes > 0) {
+          await registrarAuditoria(id, 'APROBADA_LOTE', aprobado_por, 'Aprobación por lote seleccionada');
+          count++;
         }
-      });
-      approveMany(ids);
+      }
     } else if (fecha) {
       let query = "UPDATE solicitudes SET estado = 'APROBADO', aprobado_por = ?, aprobado_en = ? WHERE fecha_salida = ? AND estado = 'PENDIENTE'";
       const params = [aprobado_por, now, fecha];
@@ -848,9 +837,9 @@ app.post('/api/solicitudes/aprobar-lote', requireRole(['sistemas']), (req, res) 
         params.push(lider);
       }
       const stmt = db.prepare(query);
-      const r = stmt.run(...params);
+      const r = await stmt.run(...params);
       count = r.changes;
-      registrarAuditoria(null, 'APROBACION_GLOBAL', aprobado_por, `Aprobadas ${count} solicitudes para ${fecha} (${area || 'Todas'} - ${lider || 'Todos'})`);
+      await registrarAuditoria(null, 'APROBACION_GLOBAL', aprobado_por, `Aprobadas ${count} solicitudes para ${fecha} (${area || 'Todas'} - ${lider || 'Todos'})`);
     }
 
     res.json({ ok: true, count, message: `Se aprobaron exitosamente ${count} solicitudes.` });
@@ -860,7 +849,7 @@ app.post('/api/solicitudes/aprobar-lote', requireRole(['sistemas']), (req, res) 
 });
 
 // 10. REEMPLAZO O CAMBIO DE EQUIPO POR AVERÍA / HARDWARE (Sistemas)
-app.patch('/api/solicitudes/:id/cambiar-equipo', requireRole(['sistemas']), (req, res) => {
+app.patch('/api/solicitudes/:id/cambiar-equipo', requireRole(['sistemas']), async (req, res) => {
   try {
     const { id } = req.params;
     const { nuevo_codigo, nuevo_modelo, motivo, operador = 'Sistemas' } = req.body;
@@ -869,7 +858,7 @@ app.patch('/api/solicitudes/:id/cambiar-equipo', requireRole(['sistemas']), (req
       return res.status(400).json({ ok: false, error: 'Debe ingresar el nuevo código de máquina.' });
     }
 
-    const solicitud = db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
+    const solicitud = await db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
     if (!solicitud) {
       return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
     }
@@ -879,7 +868,7 @@ app.patch('/api/solicitudes/:id/cambiar-equipo', requireRole(['sistemas']), (req
     const modNuevo = (nuevo_modelo || solicitud.modelo || 'DELL').trim().toUpperCase();
 
     // Comprobar que el nuevo equipo no esté en posesión de otra persona en la calle
-    const disp = verificarDisponibilidadEquipo(codNuevo, solicitud.cedula, id);
+    const disp = await verificarDisponibilidadEquipo(codNuevo, solicitud.cedula, id);
     if (!disp.disponible) {
       return res.status(400).json({ ok: false, error: disp.error });
     }
@@ -891,9 +880,9 @@ app.patch('/api/solicitudes/:id/cambiar-equipo', requireRole(['sistemas']), (req
       SET codigo_maquina = ?, modelo = ?, codigo_maquina_anterior = ?, motivo_cambio_equipo = ?, observaciones = ?
       WHERE id = ?
     `);
-    stmt.run(codNuevo, modNuevo, codAnterior, motivo || 'Cambio por Sistemas', obsActualizada, id);
+    await stmt.run(codNuevo, modNuevo, codAnterior, motivo || 'Cambio por Sistemas', obsActualizada, id);
 
-    registrarAuditoria(
+    await registrarAuditoria(
       id,
       'CAMBIO_EQUIPO',
       operador,
@@ -912,7 +901,7 @@ app.patch('/api/solicitudes/:id/cambiar-equipo', requireRole(['sistemas']), (req
 });
 
 // 11. Búsqueda Rápida para Garita (Por Cédula o Código de Máquina)
-app.get('/api/garita/buscar', (req, res) => {
+app.get('/api/garita/buscar', async (req, res) => {
   try {
     const { q } = req.query;
     if (!q || !q.trim()) {
@@ -943,13 +932,13 @@ app.get('/api/garita/buscar', (req, res) => {
 });
 
 // 11.1 Laptops Autorizadas por Sistemas Pendientes de Retiro/Despacho en Garita
-app.get('/api/garita/pendientes-despacho', (req, res) => {
+app.get('/api/garita/pendientes-despacho', async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const fecha = req.query.fecha || today;
 
     // Obtener todas las solicitudes autorizadas que esperan despacho para la fecha (o anteriores aún no despachadas)
-    const rows = db.prepare(`
+    const rows = await db.prepare(`
       SELECT * FROM solicitudes 
       WHERE estado = 'APROBADO' AND (fecha_salida = ? OR fecha_salida <= ?)
       ORDER BY fecha_salida DESC, area ASC, nombres ASC
@@ -963,7 +952,7 @@ app.get('/api/garita/pendientes-despacho', (req, res) => {
 
 // 12. DESPACHO EN GARITA (FLUJO DIRECTO "ANTI-TONTOS" EN 1 PASO)
 // El guardia solo escanea con la pistola y presiona Confirmar Salida
-app.post('/api/garita/despachar', requireRole(['garita', 'sistemas']), (req, res) => {
+app.post('/api/garita/despachar', requireRole(['garita', 'sistemas']), async (req, res) => {
   try {
     const { id, guardia_nombre = 'Guardia Garita', digitos_verificacion } = req.body;
 
@@ -971,7 +960,7 @@ app.post('/api/garita/despachar', requireRole(['garita', 'sistemas']), (req, res
       return res.status(400).json({ ok: false, error: 'ID de solicitud requerido.' });
     }
 
-    const solicitud = db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
+    const solicitud = await db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
 
     if (!solicitud) {
       return res.status(404).json({ ok: false, error: 'Registro no encontrado en el sistema.' });
@@ -989,7 +978,7 @@ app.post('/api/garita/despachar', requireRole(['garita', 'sistemas']), (req, res
       const codigoReg = solicitud.codigo_maquina.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
       const digitosIng = digitos_verificacion.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
       if (!codigoReg.endsWith(digitosIng) && codigoReg !== digitosIng) {
-        registrarAuditoria(
+        await registrarAuditoria(
           id,
           'FALLO_SEGURIDAD_GARITA',
           guardia_nombre,
@@ -1003,14 +992,14 @@ app.post('/api/garita/despachar', requireRole(['garita', 'sistemas']), (req, res
     }
 
     const now = new Date().toISOString();
-    const updateStmt = db.prepare(`
+    const updateStmt = await db.prepare(`
       UPDATE solicitudes 
       SET estado = 'SALIO', despachado_por = ?, despachado_en = ? 
       WHERE id = ?
     `);
-    updateStmt.run(guardia_nombre, now, id);
+    await updateStmt.run(guardia_nombre, now, id);
 
-    registrarAuditoria(
+    await registrarAuditoria(
       id,
       'SALIDA_CONFIRMADA',
       guardia_nombre,
@@ -1031,17 +1020,17 @@ app.post('/api/garita/despachar', requireRole(['garita', 'sistemas']), (req, res
 });
 
 // 13. RETORNO RÁPIDO INDIVIDUAL (CHECK-IN POR ESCANEO EN GARITA)
-app.post('/api/garita/retornar', (req, res) => {
+app.post('/api/garita/retornar', async (req, res) => {
   try {
     const { id, codigo_maquina, cedula, retornado_por = 'Guardia Garita', observaciones_retorno = '' } = req.body;
 
     let solicitud = null;
     if (id) {
-      solicitud = db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
+      solicitud = await db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
     } else if (codigo_maquina) {
-      solicitud = db.prepare("SELECT * FROM solicitudes WHERE codigo_maquina = ? AND estado = 'SALIO' ORDER BY id DESC").get(codigo_maquina.trim().toUpperCase());
+      solicitud = await db.prepare("SELECT * FROM solicitudes WHERE codigo_maquina = ? AND estado = 'SALIO' ORDER BY id DESC").get(codigo_maquina.trim().toUpperCase());
     } else if (cedula) {
-      solicitud = db.prepare("SELECT * FROM solicitudes WHERE cedula = ? AND estado = 'SALIO' ORDER BY id DESC").get(cedula.trim());
+      solicitud = await db.prepare("SELECT * FROM solicitudes WHERE cedula = ? AND estado = 'SALIO' ORDER BY id DESC").get(cedula.trim());
     }
 
     if (!solicitud) {
@@ -1061,9 +1050,9 @@ app.post('/api/garita/retornar', (req, res) => {
       SET estado = 'RETORNADO', retornado_por = ?, retornado_en = ?, observaciones = ? 
       WHERE id = ?
     `);
-    stmt.run(retornado_por, now, obsFinal, solicitud.id);
+    await stmt.run(retornado_por, now, obsFinal, solicitud.id);
 
-    registrarAuditoria(
+    await registrarAuditoria(
       solicitud.id,
       'RETORNO_CONFIRMADO',
       retornado_por,
@@ -1083,7 +1072,7 @@ app.post('/api/garita/retornar', (req, res) => {
 });
 
 // 14. REPORTE Y CONTROL POR LÍDERES (SISTEMAS Y AUDITORÍA EN TIEMPO REAL)
-app.get('/api/reportes/lideres', (req, res) => {
+app.get('/api/reportes/lideres', async (req, res) => {
   try {
     const { fecha_desde, fecha_hasta, lider, estado } = req.query;
 
@@ -1113,7 +1102,7 @@ app.get('/api/reportes/lideres', (req, res) => {
 
     query += ' ORDER BY lider_nombre ASC, fecha_salida DESC, id DESC';
 
-    const solicitudes = db.prepare(query).all(...params);
+    const solicitudes = await db.prepare(query).all(...params);
 
     // Agrupar por líder
     const agrupado = {};
@@ -1153,7 +1142,7 @@ app.get('/api/reportes/lideres', (req, res) => {
 });
 
 // 15. HISTORIAL / TRAZABILIDAD POR SERIE O CÉDULA
-app.get('/api/trazabilidad', (req, res) => {
+app.get('/api/trazabilidad', async (req, res) => {
   try {
     const { q } = req.query;
     if (!q || !q.trim()) {
@@ -1169,7 +1158,7 @@ app.get('/api/trazabilidad', (req, res) => {
     `).all(term, term, term);
 
     // Logs de auditoría asociados
-    const logs = db.prepare(`
+    const logs = await db.prepare(`
       SELECT * FROM auditoria 
       WHERE detalles LIKE ? OR detalles LIKE ?
       ORDER BY id DESC
@@ -1187,7 +1176,7 @@ app.get('/api/trazabilidad', (req, res) => {
 });
 
 // 16. GENERACIÓN DE HOJA OFICIAL DE CONTROL CON POLÍTICAS (IDÉNTICA AL FORMATO FÍSICO)
-app.get('/api/hoja-control', (req, res) => {
+app.get('/api/hoja-control', async (req, res) => {
   try {
     const { fecha, lider, area } = req.query;
     const today = new Date().toISOString().slice(0, 10);
@@ -1206,7 +1195,7 @@ app.get('/api/hoja-control', (req, res) => {
     }
 
     query += ' ORDER BY id ASC';
-    const registros = db.prepare(query).all(...params);
+    const registros = await db.prepare(query).all(...params);
 
     const liderNombre = lider && lider !== 'TODOS' ? lider : (registros[0]?.lider_nombre || 'Líder del Área');
     const totalAutorizados = registros.length;
@@ -1474,7 +1463,7 @@ app.get('/api/hoja-control', (req, res) => {
 });
 
 // 17. Estadísticas del Dashboard
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const fecha = req.query.fecha || today;
@@ -1506,7 +1495,7 @@ app.get('/api/stats', (req, res) => {
 });
 
 // 18. Exportar a Excel con Filtros
-app.get('/api/exportar/excel', (req, res) => {
+app.get('/api/exportar/excel', async (req, res) => {
   try {
     const { fecha, area, estado, lider } = req.query;
     let query = 'SELECT * FROM solicitudes WHERE 1=1';
@@ -1530,7 +1519,7 @@ app.get('/api/exportar/excel', (req, res) => {
     }
 
     query += ' ORDER BY id DESC';
-    const rows = db.prepare(query).all(...params);
+    const rows = await db.prepare(query).all(...params);
 
     const exportData = rows.map((r) => ({
       'ID': r.id,
@@ -1571,9 +1560,9 @@ app.get('/api/exportar/excel', (req, res) => {
 });
 
 // 19. Auditoría / Logs
-app.get('/api/auditoria', (req, res) => {
+app.get('/api/auditoria', async (req, res) => {
   try {
-    const logs = db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT 60').all();
+    const logs = await db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT 60').all();
     res.json({ ok: true, data: logs });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -1585,6 +1574,7 @@ app.use((req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+db.initDb().then(() => {});
 let serverInstance = app.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(`🚀 Sistema de Control de Salidas de Equipos Activo`);
