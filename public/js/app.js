@@ -470,7 +470,16 @@ async function buscarEnGarita(e) {
       return;
     }
 
-    const item = json.data[0];
+    // Seleccionar el registro más relevante (priorizar APROBADO de hoy o SALIO)
+    let item = json.data[0];
+    const itemAprobado = json.data.find(d => d.estado === 'APROBADO');
+    if (itemAprobado) {
+      item = itemAprobado;
+    } else {
+      const itemSalio = json.data.find(d => d.estado === 'SALIO');
+      if (itemSalio) item = itemSalio;
+    }
+
     renderizarResultadoGarita(item);
   } catch (error) {
     showToast('Error en garita: ' + error.message, 'error');
@@ -480,6 +489,8 @@ async function buscarEnGarita(e) {
 function renderizarResultadoGarita(item) {
   const container = document.getElementById('contenedorResultadoGarita');
   if (!container || !item) return;
+
+  container.innerHTML = ''; // Limpiar previo antes de renderizar
 
   if (item.estado === 'APROBADO') {
     container.innerHTML = `
@@ -572,9 +583,28 @@ function renderizarResultadoGarita(item) {
           <div class="flex-1">
             <span class="px-3 py-1 bg-blue-600 text-white text-xs font-black uppercase rounded-full">EQUIPO YA EN TELETRABAJO</span>
             <h2 class="text-2xl sm:text-3xl font-black text-slate-900 mt-2">${item.nombres} (${item.cedula})</h2>
-            <p class="text-sm text-slate-800 mt-1">El equipo <strong>${item.codigo_maquina} (${item.modelo})</strong> ya registra salida previa a las <strong>${item.despachado_en || 'Hoy'}</strong> despachado por <strong>${item.despachado_por || 'Garita'}</strong>.</p>
+            <p class="text-sm text-slate-800 mt-1">El equipo <strong>${item.codigo_maquina} (${item.modelo || 'DELL'})</strong> ya registra salida previa a las <strong>${item.despachado_en || 'Hoy'}</strong> despachado por <strong>${item.despachado_por || 'Garita'}</strong>.</p>
           </div>
           <button onclick="limpiarGarita()" class="px-4 py-2 bg-blue-200 text-blue-950 rounded-xl text-xs font-black">Cerrar</button>
+        </div>
+      </div>
+    `;
+  } else if (item.estado === 'RETORNADO') {
+    container.innerHTML = `
+      <div class="bg-cyan-50 border-4 border-cyan-500 text-cyan-950 p-6 sm:p-8 rounded-3xl shadow-xl">
+        <div class="flex items-start gap-4">
+          <div class="p-4 bg-cyan-200 text-cyan-900 rounded-2xl">
+            <i data-lucide="check-check" class="w-10 h-10"></i>
+          </div>
+          <div class="flex-1">
+            <span class="px-3 py-1 bg-cyan-600 text-white text-xs font-black uppercase rounded-full">EQUIPO YA RETORNADO / EN PLANTA</span>
+            <h2 class="text-2xl sm:text-3xl font-black text-slate-900 mt-2">${item.nombres} (${item.cedula})</h2>
+            <p class="text-sm text-slate-800 mt-1">El equipo <strong>${item.codigo_maquina} (${item.modelo || 'DELL'})</strong> ya registró retorno el <strong>${item.retornado_en || 'Hoy'}</strong> recibido por <strong>${item.retornado_por || 'Garita'}</strong>.</p>
+            <div class="mt-3 p-3 bg-white border border-cyan-300 rounded-xl text-xs font-bold text-cyan-900">
+              🛑 <strong>Aviso:</strong> El equipo ya se encuentra dentro de las instalaciones. Para una nueva salida a teletrabajo, el Líder debe generar una nueva solicitud.
+            </div>
+          </div>
+          <button onclick="limpiarGarita()" class="px-4 py-2 bg-cyan-200 text-cyan-950 rounded-xl text-xs font-black">Cerrar</button>
         </div>
       </div>
     `;
@@ -595,6 +625,31 @@ function renderizarResultadoGarita(item) {
           </div>
           <button onclick="limpiarGarita()" class="px-4 py-2 bg-rose-200 text-rose-950 rounded-xl text-xs font-black">Cerrar</button>
         </div>
+      </div>
+    `;
+  } else if (item.estado === 'NO_SALIO') {
+    playErrorSound();
+    container.innerHTML = `
+      <div class="bg-slate-50 border-4 border-slate-400 text-slate-950 p-6 sm:p-8 rounded-3xl shadow-xl">
+        <div class="flex items-start gap-4">
+          <div class="p-4 bg-slate-200 text-slate-900 rounded-2xl">
+            <i data-lucide="ban" class="w-10 h-10"></i>
+          </div>
+          <div class="flex-1">
+            <span class="px-3 py-1 bg-slate-600 text-white text-xs font-black uppercase rounded-full">SOLICITUD ANULADA / NO RETIRÓ</span>
+            <h2 class="text-2xl sm:text-3xl font-black text-slate-900 mt-2">${item.nombres} (${item.cedula})</h2>
+            <p class="text-sm text-slate-800 mt-1">La salida programada fue anulada: <em>${item.observaciones || 'No retiró el equipo'}</em>.</p>
+          </div>
+          <button onclick="limpiarGarita()" class="px-4 py-2 bg-slate-200 text-slate-950 rounded-xl text-xs font-black">Cerrar</button>
+        </div>
+      </div>
+    `;
+  } else {
+    container.innerHTML = `
+      <div class="bg-slate-50 border-4 border-slate-300 text-slate-900 p-6 rounded-3xl shadow-xl">
+        <h2 class="text-xl font-bold">${item.nombres} (${item.cedula})</h2>
+        <p class="text-sm">Estado actual: <strong>${item.estado}</strong> - Equipo: <strong>${item.codigo_maquina}</strong></p>
+        <button onclick="limpiarGarita()" class="mt-3 px-4 py-2 bg-slate-200 text-slate-900 rounded-xl text-xs font-black">Cerrar</button>
       </div>
     `;
   }

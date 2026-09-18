@@ -34,38 +34,70 @@ async function registrarAuditoria(solicitudId, accion, usuario, detalles) {
   }
 }
 
-// Función auxiliar para verificar si un equipo o asesor ya está fuera en teletrabajo
-async function verificarDisponibilidadEquipo(codigoMaquina, cedula, idIgnorar = null) {
-  const normCodigo = codigoMaquina.trim().toUpperCase();
-  const normCedula = cedula.trim();
+// Función auxiliar para verificar disponibilidad anti-duplicados (máquina y asesor)
+async function verificarDisponibilidadEquipo(codigoMaquina, cedula, fechaSalida = null, idIgnorar = null) {
+  const normCodigo = (codigoMaquina || '').trim().toUpperCase();
+  const normCedula = (cedula || '').trim();
+  const today = new Date().toISOString().slice(0, 10);
+  const targetFecha = fechaSalida || today;
 
-  // Verificar si la máquina física ya está en estado 'SALIO' (en la calle)
-  let queryEquipo = "SELECT * FROM solicitudes WHERE codigo_maquina = ? AND estado = 'SALIO'";
-  const paramsEquipo = [normCodigo];
+  // 1. Verificar si la máquina física ya está en estado 'SALIO' (en la calle sin retornar)
+  let queryEquipoSalio = "SELECT * FROM solicitudes WHERE codigo_maquina = ? AND estado = 'SALIO'";
+  const paramsEquipoSalio = [normCodigo];
   if (idIgnorar) {
-    queryEquipo += " AND id != ?";
-    paramsEquipo.push(idIgnorar);
+    queryEquipoSalio += " AND id != ?";
+    paramsEquipoSalio.push(idIgnorar);
   }
-  const ocupadoEquipo = await db.prepare(queryEquipo).get(...paramsEquipo);
-  if (ocupadoEquipo) {
+  const ocupadoEquipoSalio = await db.prepare(queryEquipoSalio).get(...paramsEquipoSalio);
+  if (ocupadoEquipoSalio) {
     return {
       disponible: false,
-      error: `El equipo [${normCodigo}] ya está en teletrabajo en posesión de ${ocupadoEquipo.nombres} (${ocupadoEquipo.area}) desde el ${ocupadoEquipo.fecha_salida}. Debe registrarse su retorno antes de asignarlo nuevamente.`
+      error: `El equipo [${normCodigo}] ya está en teletrabajo en posesión de ${ocupadoEquipoSalio.nombres} (${ocupadoEquipoSalio.area}) desde el ${ocupadoEquipoSalio.fecha_salida}. Debe registrarse su retorno antes de asignarlo nuevamente.`
     };
   }
 
-  // Verificar si la cédula ya tiene una máquina fuera activa
-  let queryCedula = "SELECT * FROM solicitudes WHERE cedula = ? AND estado = 'SALIO'";
-  const paramsCedula = [normCedula];
+  // 2. Verificar si el asesor con esa cédula ya tiene una máquina en 'SALIO' (en la calle sin retornar)
+  let queryCedulaSalio = "SELECT * FROM solicitudes WHERE cedula = ? AND estado = 'SALIO'";
+  const paramsCedulaSalio = [normCedula];
   if (idIgnorar) {
-    queryCedula += " AND id != ?";
-    paramsCedula.push(idIgnorar);
+    queryCedulaSalio += " AND id != ?";
+    paramsCedulaSalio.push(idIgnorar);
   }
-  const ocupadoCedula = await db.prepare(queryCedula).get(...paramsCedula);
-  if (ocupadoCedula) {
+  const ocupadoCedulaSalio = await db.prepare(queryCedulaSalio).get(...paramsCedulaSalio);
+  if (ocupadoCedulaSalio) {
     return {
       disponible: false,
-      error: `El asesor con cédula [${normCedula}] (${ocupadoCedula.nombres}) ya tiene un equipo asignado en la calle (${ocupadoCedula.codigo_maquina}) desde el ${ocupadoCedula.fecha_salida}.`
+      error: `El asesor con cédula [${normCedula}] (${ocupadoCedulaSalio.nombres}) ya tiene un equipo asignado en la calle (${ocupadoCedulaSalio.codigo_maquina}) desde el ${ocupadoCedulaSalio.fecha_salida}. Debe retornar ese equipo antes de solicitar otro.`
+    };
+  }
+
+  // 3. ANTI-DUPLICADOS: Verificar si el equipo ya tiene solicitud activa (PENDIENTE o APROBADO) para esta fecha
+  let queryEquipoActivo = "SELECT * FROM solicitudes WHERE codigo_maquina = ? AND fecha_salida = ? AND estado IN ('PENDIENTE', 'APROBADO')";
+  const paramsEquipoActivo = [normCodigo, targetFecha];
+  if (idIgnorar) {
+    queryEquipoActivo += " AND id != ?";
+    paramsEquipoActivo.push(idIgnorar);
+  }
+  const ocupadoEquipoActivo = await db.prepare(queryEquipoActivo).get(...paramsEquipoActivo);
+  if (ocupadoEquipoActivo) {
+    return {
+      disponible: false,
+      error: `DUPLICADO: La laptop [${normCodigo}] ya tiene una solicitud para hoy (${targetFecha}) en estado [${ocupadoEquipoActivo.estado}] solicitada por ${ocupadoEquipoActivo.lider_nombre} para ${ocupadoEquipoActivo.nombres}.`
+    };
+  }
+
+  // 4. ANTI-DUPLICADOS: Verificar si el asesor con esa cédula ya tiene solicitud activa (PENDIENTE o APROBADO) para esta fecha
+  let queryCedulaActivo = "SELECT * FROM solicitudes WHERE cedula = ? AND fecha_salida = ? AND estado IN ('PENDIENTE', 'APROBADO')";
+  const paramsCedulaActivo = [normCedula, targetFecha];
+  if (idIgnorar) {
+    queryCedulaActivo += " AND id != ?";
+    paramsCedulaActivo.push(idIgnorar);
+  }
+  const ocupadoCedulaActivo = await db.prepare(queryCedulaActivo).get(...paramsCedulaActivo);
+  if (ocupadoCedulaActivo) {
+    return {
+      disponible: false,
+      error: `DUPLICADO: El asesor con cédula [${normCedula}] (${ocupadoCedulaActivo.nombres}) ya tiene una solicitud para hoy (${targetFecha}) en estado [${ocupadoCedulaActivo.estado}] con la laptop [${ocupadoCedulaActivo.codigo_maquina}].`
     };
   }
 
@@ -362,8 +394,8 @@ app.post('/api/lider/autorizar-lote-habitual', async (req, res) => {
     const omitidos = [];
 
     for (const a of asesores) {
-      // Validar si ya está en la calle
-      const disp = await verificarDisponibilidadEquipo(a.codigo_maquina, a.cedula);
+      // Validar si ya está en la calle o tiene solicitud activa hoy
+      const disp = await verificarDisponibilidadEquipo(a.codigo_maquina, a.cedula, targetFecha);
       if (!disp.disponible) {
         omitidos.push(`${a.nombres}: ${disp.error}`);
         continue;
@@ -490,8 +522,8 @@ app.post('/api/solicitudes', async (req, res) => {
       });
     }
 
-    // Comprobación anti-duplicados (si la máquina o la persona ya están fuera)
-    const disp = await verificarDisponibilidadEquipo(codigo_maquina, cedula);
+    // Comprobación anti-duplicados (si la máquina o la persona ya están fuera o ya tienen solicitud activa hoy)
+    const disp = await verificarDisponibilidadEquipo(codigo_maquina, cedula, fecha_salida);
     if (!disp.disponible) {
       return res.status(400).json({ ok: false, error: disp.error });
     }
@@ -598,8 +630,8 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
       }
 
       if (cedula && nombres && codigo) {
-        // Verificar disponibilidad anti-duplicados
-        const disp = await verificarDisponibilidadEquipo(codigo, cedula);
+        // Verificar disponibilidad anti-duplicados estricta
+        const disp = await verificarDisponibilidadEquipo(codigo, cedula, fechaSalida);
         if (!disp.disponible) {
           errores.push(`${nombres} (${codigo}): ${disp.error}`);
           continue;
@@ -938,15 +970,31 @@ app.get('/api/garita/buscar', async (req, res) => {
     const term = q.trim();
     const today = new Date().toISOString().slice(0, 10);
 
-    // Buscar coincidencia por cédula o serie exacta o parecida
+    // Buscar coincidencia priorizando coincidencias exactas y estado APROBADO de hoy
     const rows = await db.prepare(`
       SELECT * FROM solicitudes 
       WHERE (cedula = ? OR codigo_maquina = ? OR cedula LIKE ? OR codigo_maquina LIKE ?)
       ORDER BY 
-        CASE WHEN fecha_salida = ? THEN 1 ELSE 2 END,
+        CASE 
+          WHEN (cedula = ? OR codigo_maquina = ?) AND fecha_salida = ? AND estado = 'APROBADO' THEN 1
+          WHEN (cedula = ? OR codigo_maquina = ?) AND fecha_salida = ? AND estado = 'SALIO' THEN 2
+          WHEN (cedula = ? OR codigo_maquina = ?) AND fecha_salida = ? THEN 3
+          WHEN (cedula = ? OR codigo_maquina = ?) THEN 4
+          WHEN fecha_salida = ? AND estado = 'APROBADO' THEN 5
+          WHEN fecha_salida = ? THEN 6
+          ELSE 7 
+        END,
         id DESC
       LIMIT 10
-    `).all(term, term.toUpperCase(), `%${term}%`, `%${term.toUpperCase()}%`, today);
+    `).all(
+      term, term.toUpperCase(), `%${term}%`, `%${term.toUpperCase()}%`,
+      term, term.toUpperCase(), today,
+      term, term.toUpperCase(), today,
+      term, term.toUpperCase(), today,
+      term, term.toUpperCase(),
+      today,
+      today
+    );
 
     if (rows.length === 0) {
       return res.json({ ok: true, encontrado: false, data: [] });
