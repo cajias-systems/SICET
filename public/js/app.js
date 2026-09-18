@@ -1588,9 +1588,14 @@ async function cargarMiEquipoHabitual() {
           <td class="p-3 text-xs text-slate-600">${asesor.area || (currentUser ? currentUser.area : '--')}</td>
           <td class="p-3 text-center">${estadoBadge}</td>
           <td class="p-3 text-right">
-            <button onclick="eliminarDeHabitual(${asesor.id}, '${asesor.nombres}')" class="text-xs text-slate-400 hover:text-rose-600 font-bold p-1" title="Eliminar de mi lista habitual">
-              <i data-lucide="trash-2" class="w-4 h-4 inline"></i>
-            </button>
+            <div class="flex items-center justify-end gap-1">
+              <button onclick="abrirModalAsesorHabitual(${asesor.id})" class="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition" title="Editar asesor o cambiar serie">
+                <i data-lucide="edit-3" class="w-4 h-4 inline"></i>
+              </button>
+              <button onclick="eliminarDeHabitual(${asesor.id}, '${asesor.nombres}')" class="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition" title="Eliminar de mi lista habitual">
+                <i data-lucide="trash-2" class="w-4 h-4 inline"></i>
+              </button>
+            </div>
           </td>
         </tr>
       `;
@@ -1669,18 +1674,45 @@ async function autorizarSeleccionadosHabituales() {
   }
 }
 
-// MODAL AGREGAR ASESOR A HABITUAL
-function abrirModalAsesorHabitual() {
+// MODAL AGREGAR / EDITAR ASESOR A HABITUAL
+function abrirModalAsesorHabitual(asesorId = null) {
   const m = document.getElementById('modalAsesorHabitual');
-  if (m) {
-    document.getElementById('modalHabCedula').value = '';
-    document.getElementById('modalHabNombres').value = '';
-    document.getElementById('modalHabSerie').value = '';
-    document.getElementById('modalHabModelo').value = 'DELL';
-    m.classList.remove('hidden');
-    m.classList.add('flex');
-    setTimeout(() => document.getElementById('modalHabCedula').focus(), 100);
+  if (!m) return;
+
+  const idInp = document.getElementById('modalHabId');
+  const titulo = document.getElementById('modalHabTitulo');
+  const btn = document.getElementById('btnGuardarHabitual');
+
+  if (asesorId && Array.isArray(miEquipoHabitualCache)) {
+    const asesor = miEquipoHabitualCache.find(a => a.id == asesorId);
+    if (asesor) {
+      if (idInp) idInp.value = asesor.id;
+      document.getElementById('modalHabCedula').value = asesor.cedula || '';
+      document.getElementById('modalHabNombres').value = asesor.nombres || '';
+      document.getElementById('modalHabSerie').value = asesor.codigo_maquina || '';
+      document.getElementById('modalHabModelo').value = asesor.modelo || 'DELL';
+      if (titulo) titulo.textContent = 'Editar Asesor / Serie en Mi Equipo';
+      if (btn) btn.textContent = 'Guardar Cambios';
+      m.classList.remove('hidden');
+      m.classList.add('flex');
+      lucide.createIcons();
+      setTimeout(() => document.getElementById('modalHabSerie').focus(), 100);
+      return;
+    }
   }
+
+  // Modo nuevo asesor
+  if (idInp) idInp.value = '';
+  document.getElementById('modalHabCedula').value = '';
+  document.getElementById('modalHabNombres').value = '';
+  document.getElementById('modalHabSerie').value = '';
+  document.getElementById('modalHabModelo').value = 'DELL';
+  if (titulo) titulo.textContent = 'Agregar Asesor a Mi Equipo Habitual';
+  if (btn) btn.textContent = 'Guardar en Mi Equipo';
+  m.classList.remove('hidden');
+  m.classList.add('flex');
+  lucide.createIcons();
+  setTimeout(() => document.getElementById('modalHabCedula').focus(), 100);
 }
 
 function cerrarModalAsesorHabitual() {
@@ -1693,6 +1725,7 @@ function cerrarModalAsesorHabitual() {
 
 async function guardarAsesorEnHabitual(e) {
   e.preventDefault();
+  const id = document.getElementById('modalHabId') ? document.getElementById('modalHabId').value.trim() : '';
   const cedula = document.getElementById('modalHabCedula').value.trim();
   const nombres = document.getElementById('modalHabNombres').value.trim();
   const codigo_maquina = document.getElementById('modalHabSerie').value.trim().toUpperCase();
@@ -1709,14 +1742,14 @@ async function guardarAsesorEnHabitual(e) {
     const res = await fetchAuth('/api/lider/mi-equipo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lider_nombre, area, cedula, nombres, codigo_maquina, modelo })
+      body: JSON.stringify({ id: id || undefined, lider_nombre, area, cedula, nombres, codigo_maquina, modelo })
     });
     const json = await res.json();
 
     if (json.ok) {
       cerrarModalAsesorHabitual();
       playSuccessSound();
-      showToast('Asesor agregado a su catálogo habitual.', 'success');
+      showToast(json.message || 'Asesor guardado en su catálogo habitual.', 'success');
       cargarMiEquipoHabitual();
     } else {
       alert(json.error || 'Error al guardar asesor.');
@@ -1828,14 +1861,24 @@ async function procesarCargaMasivaExcel() {
         alert('Observaciones de carga:\n' + json.errores.join('\n'));
       }
 
-      cargarSolicitudesLiderHoy();
+      await cargarMiEquipoHabitual();
+      await cargarSolicitudesLiderHoy();
       actualizarMetricasGenerales();
+      cambiarTabLider('habitual');
     } else {
       alert(json.error || 'Error en carga masiva.');
     }
   } catch (error) {
     showToast('Error: ' + error.message, 'error');
   }
+}
+
+function descargarPlantillaLider(e) {
+  if (e) e.preventDefault();
+  const lider = currentUser ? currentUser.nombre : 'Lider';
+  const area = currentUser ? (currentUser.area || '') : '';
+  const url = `/api/plantilla-excel?lider=${encodeURIComponent(lider)}&area=${encodeURIComponent(area)}`;
+  window.location.href = url;
 }
 
 async function cargarSolicitudesLiderHoy() {

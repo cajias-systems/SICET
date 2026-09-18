@@ -266,15 +266,26 @@
                 </p>
               </div>
 
-              <!-- BOTÓN GIGANTE DE ENVÍO EN 1 CLIC -->
-              <button 
-                onclick="autorizarSeleccionadosHabituales()" 
-                id="btnAutorizarHabituales" 
-                class="touch-btn px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition flex-shrink-0"
-              >
-                <i data-lucide="send" class="w-4 h-4"></i>
-                <span id="textoBtnAutorizarHabitual">Autorizar Seleccionados para Hoy</span>
-              </button>
+              <!-- ACCIONES DE NÓMINA HABITUAL -->
+              <div class="flex flex-wrap items-center gap-2 flex-shrink-0">
+                <button 
+                  type="button" 
+                  onclick="abrirModalAsesorHabitual()" 
+                  class="touch-btn px-4 py-3.5 bg-purple-600 hover:bg-purple-700 text-white font-black text-sm rounded-xl shadow-md flex items-center justify-center gap-2 transition"
+                  title="Agregar un nuevo asesor a su nómina habitual"
+                >
+                  <i data-lucide="user-plus" class="w-4 h-4"></i>
+                  <span>+ Agregar Asesor</span>
+                </button>
+                <button 
+                  onclick="autorizarSeleccionadosHabituales()" 
+                  id="btnAutorizarHabituales" 
+                  class="touch-btn px-5 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition"
+                >
+                  <i data-lucide="send" class="w-4 h-4"></i>
+                  <span id="textoBtnAutorizarHabitual">Autorizar Seleccionados para Hoy</span>
+                </button>
+              </div>
             </div>
 
             <!-- TABLA DE MI EQUIPO CON CHECKBOXES -->
@@ -370,7 +381,7 @@
                   <p class="text-xs text-purple-700">Los asesores que suba aquí quedarán automáticamente en su catálogo habitual.</p>
                 </div>
               </div>
-              <a href="/api/plantilla-excel" download class="touch-btn px-4 py-2 bg-white hover:bg-slate-50 text-purple-700 font-bold text-xs rounded-lg border border-purple-300 shadow-sm flex items-center gap-2">
+              <a href="#" onclick="descargarPlantillaLider(event)" class="touch-btn px-4 py-2 bg-white hover:bg-slate-50 text-purple-700 font-bold text-xs rounded-lg border border-purple-300 shadow-sm flex items-center gap-2">
                 <i data-lucide="download" class="w-4 h-4"></i>
                 <span>Descargar Plantilla (.xlsx)</span>
               </a>
@@ -869,12 +880,13 @@
   <div id="modalAsesorHabitual" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
     <div class="bg-white rounded-3xl shadow-xl max-w-md w-full p-6 space-y-4">
       <div class="flex items-center gap-3 text-purple-600">
-        <i data-lucide="user-plus" class="w-6 h-6"></i>
-        <h3 class="text-lg font-bold text-slate-900">Agregar Asesor a Mi Equipo Habitual</h3>
+        <span id="modalHabIcono"><i data-lucide="user-plus" class="w-6 h-6"></i></span>
+        <h3 id="modalHabTitulo" class="text-lg font-bold text-slate-900">Agregar Asesor a Mi Equipo Habitual</h3>
       </div>
-      <p class="text-xs text-slate-600">Este asesor quedará guardado permanentemente para que solo tengas que seleccionarlo con un checkbox.</p>
+      <p id="modalHabSubtitulo" class="text-xs text-slate-600">Este asesor quedará guardado permanentemente para que solo tengas que seleccionarlo con un checkbox.</p>
       
       <form onsubmit="guardarAsesorEnHabitual(event)" class="space-y-3">
+        <input type="hidden" id="modalHabId" value="">
         <div>
           <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Cédula *</label>
           <input type="text" id="modalHabCedula" required placeholder="Ej: 1725665127" class="w-full p-2.5 text-sm font-mono border rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
@@ -895,7 +907,7 @@
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" onclick="cerrarModalAsesorHabitual()" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl">Cancelar</button>
-          <button type="submit" class="px-5 py-2 text-sm font-black bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow">Guardar en Mi Equipo</button>
+          <button type="submit" id="btnGuardarHabitual" class="px-5 py-2 text-sm font-black bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow">Guardar en Mi Equipo</button>
         </div>
       </form>
     </div>

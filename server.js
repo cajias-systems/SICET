@@ -287,9 +287,28 @@ app.get('/api/lider/mi-equipo', async (req, res) => {
 // Agregar o editar asesor en el equipo habitual del líder
 app.post('/api/lider/mi-equipo', async (req, res) => {
   try {
-    const { lider_nombre, cedula, nombres, codigo_maquina, modelo, tipo_equipo, area } = req.body;
+    const { id, lider_nombre, cedula, nombres, codigo_maquina, modelo, tipo_equipo, area } = req.body;
     if (!lider_nombre || !cedula || !nombres || !codigo_maquina) {
       return res.status(400).json({ ok: false, error: 'Líder, cédula, nombres y código de máquina son obligatorios.' });
+    }
+
+    if (id) {
+      const stmt = db.prepare(`
+        UPDATE asesores_catalogo 
+        SET cedula = ?, nombres = ?, codigo_maquina = ?, modelo = ?, tipo_equipo = ?, area = ?
+        WHERE id = ? AND lider_nombre = ?
+      `);
+      await stmt.run(
+        cedula.trim(),
+        nombres.trim(),
+        codigo_maquina.trim().toUpperCase(),
+        (modelo || 'DELL').trim().toUpperCase(),
+        (tipo_equipo || 'Laptop').trim(),
+        (area || 'General').trim(),
+        id,
+        lider_nombre.trim()
+      );
+      return res.json({ ok: true, message: 'Asesor actualizado correctamente en su equipo habitual.' });
     }
 
     await sincronizarAsesorAlCatalogo(lider_nombre, cedula, nombres, codigo_maquina, modelo, tipo_equipo, area);
@@ -528,7 +547,8 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
     return res.status(400).json({ ok: false, error: 'No se subió ningún archivo.' });
   }
 
-  const lider_default = req.body.lider_nombre || 'Líder de Área';
+  const lider_default = (req.body.lider_nombre || '').trim();
+  const userRole = req.headers['x-user-role'] || 'lider';
   const filePath = req.file.path;
 
   try {
@@ -555,7 +575,7 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
     for (const row of rows) {
       const cedula = String(row['Cédula'] || row['Cedula'] || row['CEDULA'] || row['cedula'] || '').trim();
       const nombres = String(row['Nombres'] || row['Nombre'] || row['NOMBRES'] || row['Apellidos y Nombres'] || '').trim();
-      const area = String(row['Área'] || row['Area'] || row['AREA'] || row['Campaña'] || 'General').trim();
+      const area = String(row['Área'] || row['Area'] || row['AREA'] || row['Campaña'] || req.body.area || 'Campañas').trim();
       const codigo = String(row['Código Máquina'] || row['Codigo Maquina'] || row['Serie'] || row['N° de Serie'] || row['CODIGO'] || row['Equipo'] || '').trim().toUpperCase();
       const modelo = String(row['Modelo'] || row['MODELO'] || row['Marca'] || 'DELL').trim().toUpperCase();
       const tipo = String(row['Tipo de Equipo'] || row['Tipo'] || 'Laptop').trim();
@@ -570,7 +590,12 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
       
       const fechaRetorno = String(row['Fecha Retorno'] || fechaSalida).trim();
       const obs = String(row['Observaciones'] || row['Obs'] || '').trim();
-      const lider = String(row['Líder'] || row['Lider'] || lider_default).trim();
+
+      // Si quien sube es un líder o envió su nombre explícito, la carga pertenece a él
+      let lider = lider_default;
+      if (!lider || (userRole === 'sistemas' && (row['Líder'] || row['Lider']))) {
+        lider = String(row['Líder'] || row['Lider'] || lider_default || 'Líder de Área').trim();
+      }
 
       if (cedula && nombres && codigo) {
         // Verificar disponibilidad anti-duplicados
@@ -620,29 +645,31 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
 app.get('/api/plantilla-excel', async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
+    const liderNombre = req.query.lider || 'Mi Nombre de Líder';
+    const areaNombre = req.query.area || 'Campañas';
     const templateData = [
       {
         'Cédula': '1725665127',
         'Nombres': 'ANRANGO COLLAGUAZO JENNIFER ETELVINA',
-        'Área': 'Cobranzas',
+        'Área': areaNombre,
         'Código Máquina': 'D6QHM72',
         'Modelo': 'DELL',
         'Tipo de Equipo': 'Laptop',
         'Fecha Salida': today,
         'Fecha Retorno': today,
-        'Líder': 'Casarez Anthonny',
+        'Líder': liderNombre,
         'Observaciones': 'Turno teletrabajo tarde'
       },
       {
         'Cédula': '1729875596',
         'Nombres': 'ASTUDILLO DE LA CRUZ JONATHAN MIGUEL',
-        'Área': 'Cobranzas',
+        'Área': areaNombre,
         'Código Máquina': 'FRV8282',
         'Modelo': 'DELL',
         'Tipo de Equipo': 'Laptop',
         'Fecha Salida': today,
         'Fecha Retorno': today,
-        'Líder': 'Casarez Anthonny',
+        'Líder': liderNombre,
         'Observaciones': 'Campaña fin de mes'
       }
     ];
