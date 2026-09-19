@@ -199,6 +199,7 @@ async function ejecutarLogin(e) {
 
 function ejecutarLogout() {
   if (!confirm('¿Desea cerrar la sesión actual?')) return;
+  if (window.liderInterval) clearInterval(window.liderInterval);
   sessionStorage.removeItem('salidas_usuario_activo');
   currentUser = null;
   mostrarLogin();
@@ -271,6 +272,17 @@ function mostrarAplicacion() {
   } else {
     // Sistemas
     cambiarModulo('sistemas');
+  }
+
+  if (window.liderInterval) clearInterval(window.liderInterval);
+  if (currentUser.rol === 'lider') {
+    window.liderInterval = setInterval(() => {
+      const vistaLider = document.getElementById('modulo-lideres');
+      if (vistaLider && !vistaLider.classList.contains('hidden')) {
+        cargarSolicitudesLiderHoy();
+        cargarMiEquipoHabitual();
+      }
+    }, 20000);
   }
 
   actualizarMetricasGenerales();
@@ -1811,6 +1823,8 @@ function abrirModalAsesorHabitual(asesorId = null) {
       document.getElementById('modalHabNombres').value = asesor.nombres || '';
       document.getElementById('modalHabSerie').value = asesor.codigo_maquina || '';
       document.getElementById('modalHabModelo').value = asesor.modelo || 'DELL';
+      const areaInput = document.getElementById('modalHabArea');
+      if (areaInput) areaInput.value = asesor.area || (currentUser ? currentUser.area : 'Campañas');
       if (titulo) titulo.textContent = 'Editar Asesor / Serie en Mi Equipo';
       if (btn) btn.textContent = 'Guardar Cambios';
       m.classList.remove('hidden');
@@ -1827,6 +1841,8 @@ function abrirModalAsesorHabitual(asesorId = null) {
   document.getElementById('modalHabNombres').value = '';
   document.getElementById('modalHabSerie').value = '';
   document.getElementById('modalHabModelo').value = 'DELL';
+  const areaInput = document.getElementById('modalHabArea');
+  if (areaInput) areaInput.value = currentUser ? (currentUser.area || 'Campañas') : 'Campañas';
   if (titulo) titulo.textContent = 'Agregar Asesor a Mi Equipo Habitual';
   if (btn) btn.textContent = 'Guardar en Mi Equipo';
   m.classList.remove('hidden');
@@ -1851,7 +1867,7 @@ async function guardarAsesorEnHabitual(e) {
   const codigo_maquina = document.getElementById('modalHabSerie').value.trim().toUpperCase();
   const modelo = document.getElementById('modalHabModelo').value.trim().toUpperCase();
   const lider_nombre = currentUser ? currentUser.nombre : '';
-  const area = currentUser ? (currentUser.area || 'Operaciones') : 'Operaciones';
+  const area = (document.getElementById('modalHabArea') && document.getElementById('modalHabArea').value.trim()) || (currentUser ? currentUser.area : 'Campañas');
 
   if (!cedula || !nombres || !codigo_maquina) {
     alert('Por favor complete todos los campos obligatorios.');

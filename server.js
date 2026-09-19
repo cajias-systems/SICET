@@ -133,6 +133,34 @@ async function sincronizarAsesorAlCatalogo(liderNombre, cedula, nombres, codigoM
   }
 }
 
+// Función para normalizar nombres de líderes contra el directorio oficial
+function resolverNombreLiderOficial(nombre, listaDirectorio = []) {
+  if (!nombre) return 'Líder de Área';
+  const clean = String(nombre).trim();
+  if (!clean) return 'Líder de Área';
+
+  // 1. Coincidencia exacta insensible a mayúsculas
+  const exact = listaDirectorio.find(l => l.nombre && l.nombre.toLowerCase() === clean.toLowerCase());
+  if (exact) return exact.nombre;
+
+  // 2. Mapeo de variantes conocidas (ej. PEREZ RICARDO, RICARDO PEREZ -> Ricardo)
+  if (/ricardo/i.test(clean)) {
+    const ric = listaDirectorio.find(l => l.nombre && l.nombre.toLowerCase() === 'ricardo');
+    if (ric) return ric.nombre;
+  }
+
+  // 3. Coincidencia por partes o palabras
+  const palabras = clean.toLowerCase().split(/\s+/);
+  for (const palabra of palabras) {
+    if (palabra.length >= 4) {
+      const match = listaDirectorio.find(l => l.nombre && (l.nombre.toLowerCase().includes(palabra) || palabra.includes(l.nombre.toLowerCase())));
+      if (match) return match.nombre;
+    }
+  }
+
+  return clean;
+}
+
 // ==========================================
 // RUTAS DE AUTENTICACIÓN Y ROLES (RBAC)
 // ==========================================
@@ -280,11 +308,21 @@ app.get('/api/lider/mi-equipo', async (req, res) => {
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    const asesores = await db.prepare(`
-      SELECT * FROM asesores_catalogo 
-      WHERE lider_nombre = ? AND activo = 1 
-      ORDER BY nombres ASC
-    `).all(lider_nombre.trim());
+    const cleanLider = lider_nombre.trim();
+    let asesores;
+    if (cleanLider.toLowerCase() === 'ricardo') {
+      asesores = await db.prepare(`
+        SELECT * FROM asesores_catalogo 
+        WHERE (lider_nombre = 'Ricardo' OR UPPER(lider_nombre) LIKE '%RICARDO%') AND activo = 1 
+        ORDER BY nombres ASC
+      `).all();
+    } else {
+      asesores = await db.prepare(`
+        SELECT * FROM asesores_catalogo 
+        WHERE (lider_nombre = ? OR LOWER(lider_nombre) = LOWER(?)) AND activo = 1 
+        ORDER BY nombres ASC
+      `).all(cleanLider, cleanLider);
+    }
 
     // Anotar cada asesor si ya tiene solicitud hoy o si la laptop está afuera
     const resultado = await Promise.all(asesores.map(async a => {
@@ -478,8 +516,13 @@ app.get('/api/solicitudes', async (req, res) => {
       params.push(area);
     }
     if (lider && lider !== 'TODOS') {
-      query += ' AND lider_nombre = ?';
-      params.push(lider);
+      const lidClean = lider.trim();
+      if (lidClean.toLowerCase() === 'ricardo') {
+        query += " AND (lider_nombre = 'Ricardo' OR UPPER(lider_nombre) LIKE '%RICARDO%')";
+      } else {
+        query += ' AND (lider_nombre = ? OR LOWER(lider_nombre) = LOWER(?))';
+        params.push(lidClean, lidClean);
+      }
     }
     if (estado && estado !== 'TODOS') {
       query += ' AND estado = ?';
@@ -595,6 +638,9 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
       return res.status(400).json({ ok: false, error: 'El archivo está vacío o no tiene el formato correcto.' });
     }
 
+    // Cargar directorio oficial de líderes para normalización inteligente
+    const directorioLideres = await db.prepare("SELECT nombre FROM lideres_directorio WHERE activo = 1").all();
+
     const insertStmt = db.prepare(`
       INSERT INTO solicitudes 
       (cedula, nombres, area, lider_nombre, codigo_maquina, modelo, tipo_equipo, fecha_salida, fecha_retorno_estimada, estado, observaciones)
@@ -624,10 +670,13 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
       const fechaRetorno = String(row['Fecha Retorno'] || fechaSalida).trim();
       const obs = String(row['Observaciones'] || row['Obs'] || '').trim();
 
-      // Si quien sube es un líder o envió su nombre explícito, la carga pertenece a él
+      // Normalización inteligente: el líder dueño siempre se asigna con su nombre oficial
       let lider = lider_default;
-      if (!lider || (userRole === 'sistemas' && (row['Líder'] || row['Lider']))) {
-        lider = String(row['Líder'] || row['Lider'] || lider_default || 'Líder de Área').trim();
+      if (!lider || userRole === 'sistemas') {
+        const rawLider = String(row['Líder'] || row['Lider'] || lider_default || 'Líder de Área').trim();
+        lider = resolverNombreLiderOficial(rawLider, directorioLideres);
+      } else {
+        lider = resolverNombreLiderOficial(lider, directorioLideres);
       }
 
       if (cedula && nombres && codigo) {
