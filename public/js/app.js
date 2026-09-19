@@ -697,6 +697,8 @@ function limpiarGarita() {
 }
 
 // Cargar equipos autorizados por Sistemas que están pendientes de retiro en Garita
+let pendientesGaritaCache = [];
+
 async function cargarPendientesDespachoGarita() {
   try {
     const today = new Date().toISOString().slice(0, 10);
@@ -708,6 +710,8 @@ async function cargarPendientesDespachoGarita() {
     const stat = document.getElementById('statGaritaPendientes');
 
     if (!json.ok || !json.data || json.data.length === 0) {
+      pendientesGaritaCache = [];
+      actualizarComboFiltroLideresGarita([]);
       if (tbody) {
         tbody.innerHTML = `
           <tr>
@@ -730,56 +734,106 @@ async function cargarPendientesDespachoGarita() {
       return;
     }
 
-    const items = json.data;
+    pendientesGaritaCache = json.data;
     if (badge) {
-      badge.textContent = `${items.length} ${items.length === 1 ? 'pendiente' : 'pendientes'}`;
+      badge.textContent = `${pendientesGaritaCache.length} ${pendientesGaritaCache.length === 1 ? 'pendiente' : 'pendientes'}`;
       badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-600 text-white shadow-sm';
     }
-    if (stat) stat.textContent = items.length;
+    if (stat) stat.textContent = pendientesGaritaCache.length;
 
-    if (tbody) {
-      tbody.innerHTML = items.map(item => {
-        return `
-          <tr class="hover:bg-emerald-50/50 transition">
-            <td class="py-3 px-4">
-              <div class="font-black text-slate-900">${item.nombres}</div>
-              <div class="text-[11px] text-slate-500 font-semibold">Salida: ${item.fecha_salida}</div>
-            </td>
-            <td class="py-3 px-4 font-mono text-xs font-bold text-slate-700">${item.cedula}</td>
-            <td class="py-3 px-4">
-              <button 
-                onclick="seleccionarSerieParaEscanear('${item.codigo_maquina}')" 
-                class="font-mono text-xs font-black text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 tracking-wider shadow-sm flex items-center gap-1.5 transition"
-                title="Haga clic para cargar este código en el escáner"
-              >
-                <i data-lucide="barcode" class="w-3.5 h-3.5"></i>
-                <span>${item.codigo_maquina}</span>
-              </button>
-            </td>
-            <td class="py-3 px-4 font-bold text-xs text-slate-700">${item.modelo || 'DELL'}</td>
-            <td class="py-3 px-4">
-              <div class="text-xs font-bold text-slate-900">${item.lider_nombre || 'N/A'}</div>
-              <div class="text-[11px] font-semibold text-emerald-800">${item.area}</div>
-            </td>
-            <td class="py-3 px-4 text-xs font-semibold text-slate-600">${item.aprobado_por || 'Sistemas'}</td>
-            <td class="py-3 px-4 text-center">
-              <button 
-                onclick="confirmarSalidaDirecta(${item.id})"
-                class="touch-btn px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-md flex items-center justify-center gap-1.5 transition mx-auto active:scale-95"
-                title="Confirmar salida física del asesor"
-              >
-                <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
-                <span>DESPACHAR</span>
-              </button>
-            </td>
-          </tr>
-        `;
-      }).join('');
-      lucide.createIcons();
-    }
+    actualizarComboFiltroLideresGarita(pendientesGaritaCache);
+    filtrarPendientesGaritaPorLider();
   } catch (error) {
     console.error('Error cargando pendientes en garita:', error);
   }
+}
+
+function actualizarComboFiltroLideresGarita(items) {
+  const select = document.getElementById('filtroGaritaLider');
+  if (!select) return;
+
+  const currentVal = select.value || 'TODOS';
+  const conteoPorLider = {};
+  items.forEach(it => {
+    const l = (it.lider_nombre || 'Sin Líder').trim();
+    conteoPorLider[l] = (conteoPorLider[l] || 0) + 1;
+  });
+
+  let options = `<option value="TODOS">Todos los Líderes (${items.length})</option>`;
+  Object.keys(conteoPorLider).sort().forEach(l => {
+    options += `<option value="${l}">${l} (${conteoPorLider[l]})</option>`;
+  });
+  select.innerHTML = options;
+
+  if (conteoPorLider[currentVal] !== undefined || currentVal === 'TODOS') {
+    select.value = currentVal;
+  } else {
+    select.value = 'TODOS';
+  }
+}
+
+function filtrarPendientesGaritaPorLider() {
+  const select = document.getElementById('filtroGaritaLider');
+  const lider = select ? select.value : 'TODOS';
+  const tbody = document.getElementById('tablaPendientesDespachoGarita');
+  if (!tbody) return;
+
+  let items = pendientesGaritaCache;
+  if (lider && lider !== 'TODOS') {
+    items = items.filter(it => (it.lider_nombre || 'Sin Líder').trim() === lider);
+  }
+
+  if (items.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" class="py-8 text-center text-slate-400">
+          <p class="font-bold text-slate-600">No hay laptops pendientes para el líder seleccionado.</p>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = items.map(item => {
+    return `
+      <tr class="hover:bg-emerald-50/50 transition">
+        <td class="py-3 px-4">
+          <div class="font-black text-slate-900">${item.nombres}</div>
+          <div class="text-[11px] text-slate-500 font-semibold">Salida: ${item.fecha_salida}</div>
+        </td>
+        <td class="py-3 px-4 font-mono text-xs font-bold text-slate-700">${item.cedula}</td>
+        <td class="py-3 px-4">
+          <button 
+            onclick="seleccionarSerieParaEscanear('${item.codigo_maquina}')" 
+            class="font-mono text-xs font-black text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 tracking-wider shadow-sm flex items-center gap-1.5 transition"
+            title="Haga clic para cargar este código en el escáner"
+          >
+            <i data-lucide="barcode" class="w-3.5 h-3.5"></i>
+            <span>${item.codigo_maquina}</span>
+          </button>
+        </td>
+        <td class="py-3 px-4 font-bold text-xs text-slate-700">${item.modelo || 'DELL'}</td>
+        <td class="py-3 px-4">
+          <span class="inline-block px-2.5 py-1 bg-purple-100 text-purple-900 border border-purple-200 rounded-lg text-xs font-black shadow-xs">
+            ${item.lider_nombre || 'N/A'}
+          </span>
+          <div class="text-[11px] font-semibold text-emerald-800 mt-0.5">${item.area}</div>
+        </td>
+        <td class="py-3 px-4 text-xs font-semibold text-slate-600">${item.aprobado_por || 'Sistemas'}</td>
+        <td class="py-3 px-4 text-center">
+          <button 
+            onclick="confirmarSalidaDirecta(${item.id})"
+            class="touch-btn px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black rounded-xl shadow-md flex items-center justify-center gap-1.5 transition mx-auto active:scale-95"
+            title="Confirmar salida física del asesor"
+          >
+            <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+            <span>DESPACHAR</span>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  lucide.createIcons();
 }
 
 function seleccionarSerieParaEscanear(serie) {
@@ -1601,9 +1655,13 @@ async function cargarMiEquipoHabitual() {
     const solicitudesHoy = jsonSol.ok ? jsonSol.data : [];
 
     tbody.innerHTML = json.data.map(asesor => {
-      const sol = solicitudesHoy.find(s => s.cedula === asesor.cedula || s.codigo_maquina === asesor.codigo_maquina);
+      // Buscar primero si tiene una solicitud activa (bloqueante) hoy
+      const solActiva = solicitudesHoy.find(s => 
+        (s.cedula === asesor.cedula || s.codigo_maquina === asesor.codigo_maquina) &&
+        ['PENDIENTE', 'APROBADO', 'SALIO'].includes(s.estado)
+      );
+      const sol = solActiva || solicitudesHoy.find(s => s.cedula === asesor.cedula || s.codigo_maquina === asesor.codigo_maquina);
       let estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">No enviado hoy</span>';
-      let isChecked = false;
       let isDisabled = '';
 
       if (sol) {
@@ -1616,8 +1674,15 @@ async function cargarMiEquipoHabitual() {
         } else if (sol.estado === 'SALIO') {
           estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300">En Teletrabajo</span>';
           isDisabled = 'disabled';
+        } else if (sol.estado === 'RETORNADO') {
+          estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-100 text-cyan-800 border border-cyan-300">Retornado (Disponible)</span>';
+          isDisabled = '';
         } else if (sol.estado === 'RECHAZADO') {
           estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300">Rechazado</span>';
+          isDisabled = '';
+        } else if (sol.estado === 'NO_SALIO') {
+          estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">No salió (Disponible)</span>';
+          isDisabled = '';
         }
       }
 

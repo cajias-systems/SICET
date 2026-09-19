@@ -401,10 +401,11 @@ app.post('/api/lider/autorizar-lote-habitual', async (req, res) => {
         continue;
       }
 
-      // Validar si ya tiene solicitud para hoy
-      const yaExiste = await db.prepare('SELECT id FROM solicitudes WHERE cedula = ? AND fecha_salida = ?').get(a.cedula, targetFecha);
-      if (yaExiste) {
-        omitidos.push(`${a.nombres}: Ya tiene una solicitud registrada para hoy.`);
+      // Validar si ya tiene solicitud ACTIVA para hoy (PENDIENTE, APROBADO o SALIO)
+      // Si el equipo ya fue RETORNADO en la mañana, se permite autorizar una nueva salida para el turno tarde/noche
+      const yaExisteActivo = await db.prepare("SELECT id, estado FROM solicitudes WHERE cedula = ? AND fecha_salida = ? AND estado IN ('PENDIENTE', 'APROBADO', 'SALIO')").get(a.cedula, targetFecha);
+      if (yaExisteActivo) {
+        omitidos.push(`${a.nombres}: Ya tiene una solicitud activa en estado [${yaExisteActivo.estado}] para hoy.`);
         continue;
       }
 

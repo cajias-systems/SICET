@@ -530,9 +530,18 @@
                   <p class="text-xs text-slate-500 font-medium">Asesores autorizados por Sistemas TI. Puede presionar el botón verde de salida o apuntar la pistola de códigos a la serie del equipo.</p>
                 </div>
               </div>
-              <button onclick="cargarTodoGarita()" class="touch-btn text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl flex items-center gap-1.5 transition self-start sm:self-auto">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar Lista
-              </button>
+              <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                <div class="flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-300 shadow-sm">
+                  <i data-lucide="filter" class="w-3.5 h-3.5 text-emerald-800"></i>
+                  <span class="text-xs font-black text-emerald-950">Líder:</span>
+                  <select id="filtroGaritaLider" onchange="filtrarPendientesGaritaPorLider()" class="bg-transparent text-xs font-black text-emerald-900 focus:outline-none cursor-pointer">
+                    <option value="TODOS">Todos los Líderes</option>
+                  </select>
+                </div>
+                <button onclick="cargarTodoGarita()" class="touch-btn text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+                </button>
+              </div>
             </div>
 
             <div class="overflow-x-auto">
