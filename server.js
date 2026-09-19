@@ -514,7 +514,7 @@ app.get('/api/solicitudes', async (req, res) => {
 
     if (fecha) {
       if (lider && lider !== 'TODOS') {
-        query += ' AND (fecha_salida = ? OR created_at >= datetime("now", "-24 hours"))';
+        query += " AND (fecha_salida = ? OR created_at >= datetime('now', '-24 hours'))";
         params.push(fecha);
       } else {
         query += ' AND fecha_salida = ?';
