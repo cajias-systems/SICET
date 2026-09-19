@@ -565,14 +565,28 @@
           </div>
 
           <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
-            <div class="flex items-center justify-between mb-4">
-              <div class="flex items-center gap-2">
-                <i data-lucide="clock" class="w-5 h-5 text-emerald-600"></i>
-                <h2 class="font-extrabold text-lg text-slate-900">Salidas Despachadas en este Turno</h2>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2">
+                  <i data-lucide="clock" class="w-5 h-5 text-emerald-600"></i>
+                  <h2 class="font-extrabold text-lg text-slate-900">Salidas Despachadas en este Turno</h2>
+                </div>
+                <span id="badgeConteoDespachadosGarita" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+                  0 despachadas
+                </span>
               </div>
-              <button onclick="cargarDespachosRecientesGarita()" class="text-xs text-blue-600 hover:underline flex items-center gap-1 font-bold">
-                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
-              </button>
+              <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                <div class="flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-300 shadow-xs">
+                  <i data-lucide="filter" class="w-3.5 h-3.5 text-emerald-800"></i>
+                  <span class="text-xs font-black text-emerald-950">Líder:</span>
+                  <select id="filtroDespachadosLider" onchange="filtrarDespachadosGaritaPorLider()" class="bg-transparent text-xs font-black text-emerald-900 focus:outline-none cursor-pointer">
+                    <option value="TODOS">Todos los Líderes</option>
+                  </select>
+                </div>
+                <button onclick="cargarDespachosRecientesGarita()" class="touch-btn text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition">
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+                </button>
+              </div>
             </div>
             <div class="overflow-x-auto">
               <table class="w-full text-left text-sm">

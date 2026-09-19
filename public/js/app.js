@@ -6,6 +6,12 @@ let currentUser = null; // { id, username, nombre, rol, area }
 let selectedSolicitudesSistemas = new Set();
 let debounceTimer = null;
 let ultimosDespachosCache = [];
+let despachosGaritaCache = [];
+
+// Obtener fecha actual en zona horaria oficial de Ecuador (America/Guayaquil, UTC-5)
+function getFechaLocalEcuador(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(d);
+}
 
 // Audio context para sonidos sintetizados
 let audioCtx = null;
@@ -242,7 +248,7 @@ function mostrarAplicacion() {
   cargarAreas();
   cargarLideresSelectores();
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getFechaLocalEcuador();
   const elFechaSistemas = document.getElementById('filtroSistemasFecha');
   if (elFechaSistemas) elFechaSistemas.value = today;
 
@@ -713,7 +719,7 @@ let pendientesGaritaCache = [];
 
 async function cargarPendientesDespachoGarita() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     const res = await fetchAuth(`/api/garita/pendientes-despacho?fecha=${today}`);
     const json = await res.json();
 
@@ -867,54 +873,110 @@ async function cargarTodoGarita() {
 
 async function cargarDespachosRecientesGarita() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const res = await fetchAuth(`/api/solicitudes?fecha=${today}`);
+    const today = getFechaLocalEcuador();
+    const res = await fetchAuth(`/api/garita/despachos-turno?fecha=${today}`);
     const json = await res.json();
 
     const tbody = document.getElementById('tablaDespachosHoy');
+    const badge = document.getElementById('badgeConteoDespachadosGarita');
     if (!tbody) return;
 
-    if (!json.ok || json.data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-400">No hay salidas registradas en el turno de hoy.</td></tr>`;
+    if (!json.ok || !json.data || json.data.length === 0) {
+      despachosGaritaCache = [];
       ultimosDespachosCache = [];
+      actualizarComboFiltroDespachadosLider([]);
+      tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-400 font-medium">Aún no ha salido ningún asesor por la garita en este turno.</td></tr>`;
+      if (badge) {
+        badge.textContent = '0 despachadas';
+        badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200';
+      }
       return;
     }
 
-    // FILTRAR EXCLUSIVAMENTE SALIDAS EFECTUADAS (SALIO o RETORNADO) PARA NO CONFUNDIR AL GUARDIA
-    const salidasReales = json.data.filter(item => item.estado === 'SALIO' || item.estado === 'RETORNADO');
-
-    if (salidasReales.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-400">Aún no ha salido ningún asesor por la garita hoy.</td></tr>`;
-      ultimosDespachosCache = [];
-      return;
+    despachosGaritaCache = json.data;
+    ultimosDespachosCache = json.data;
+    if (badge) {
+      badge.textContent = `${despachosGaritaCache.length} despachada${despachosGaritaCache.length === 1 ? '' : 's'}`;
+      badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs';
     }
 
-    ultimosDespachosCache = salidasReales;
-
-    tbody.innerHTML = salidasReales.map(item => {
-      const hora = item.despachado_en ? new Date(item.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '--:--';
-      const badgeClass = getBadgeClass(item.estado);
-
-      return `
-        <tr class="hover:bg-slate-50 transition">
-          <td class="py-3 px-4 font-mono text-xs font-bold">${hora}</td>
-          <td class="py-3 px-4 font-black text-slate-900">${item.nombres}</td>
-          <td class="py-3 px-4 font-mono text-xs text-slate-600">${item.cedula}</td>
-          <td class="py-3 px-4 font-mono text-xs font-bold text-blue-700">${item.codigo_maquina}</td>
-          <td class="py-3 px-4 font-bold text-xs text-slate-700">${item.modelo || 'DELL'}</td>
-          <td class="py-3 px-4 text-xs font-semibold">${item.lider_nombre || item.area}</td>
-          <td class="py-3 px-4 text-xs text-slate-600">${item.despachado_por || '--'}</td>
-          <td class="py-3 px-4 text-center">
-            <span class="px-2.5 py-1 rounded-full text-xs font-black uppercase ${badgeClass}">
-              ${item.estado}
-            </span>
-          </td>
-        </tr>
-      `;
-    }).join('');
+    actualizarComboFiltroDespachadosLider(despachosGaritaCache);
+    filtrarDespachadosGaritaPorLider();
   } catch (error) {
     console.error('Error cargando despachos recientes:', error);
   }
+}
+
+function actualizarComboFiltroDespachadosLider(items) {
+  const select = document.getElementById('filtroDespachadosLider');
+  if (!select) return;
+
+  const currentVal = select.value || 'TODOS';
+  const conteoPorLider = {};
+  items.forEach(it => {
+    const l = (it.lider_nombre || 'Sin Líder').trim();
+    conteoPorLider[l] = (conteoPorLider[l] || 0) + 1;
+  });
+
+  let options = `<option value="TODOS">Todos los Líderes (${items.length})</option>`;
+  Object.keys(conteoPorLider).sort().forEach(l => {
+    options += `<option value="${l}">${l} (${conteoPorLider[l]})</option>`;
+  });
+  select.innerHTML = options;
+
+  if (conteoPorLider[currentVal] !== undefined || currentVal === 'TODOS') {
+    select.value = currentVal;
+  } else {
+    select.value = 'TODOS';
+  }
+}
+
+function filtrarDespachadosGaritaPorLider() {
+  const select = document.getElementById('filtroDespachadosLider');
+  const lider = select ? select.value : 'TODOS';
+  const tbody = document.getElementById('tablaDespachosHoy');
+  if (!tbody) return;
+
+  let items = despachosGaritaCache;
+  if (lider && lider !== 'TODOS') {
+    items = items.filter(it => (it.lider_nombre || 'Sin Líder').trim() === lider);
+  }
+
+  if (items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-slate-400 font-bold">No hay salidas despachadas para el líder seleccionado en este turno.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = items.map(item => {
+    const hora = item.despachado_en ? new Date(item.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+    const badgeClass = getBadgeClass(item.estado);
+
+    return `
+      <tr class="hover:bg-slate-50 transition">
+        <td class="py-3 px-4 font-mono text-xs font-bold text-slate-900">${hora}</td>
+        <td class="py-3 px-4">
+          <div class="font-black text-slate-900">${item.nombres}</div>
+          <div class="text-[11px] text-slate-400 font-medium">Turno: ${item.fecha_salida}</div>
+        </td>
+        <td class="py-3 px-4 font-mono text-xs text-slate-600">${item.cedula}</td>
+        <td class="py-3 px-4 font-mono text-xs font-bold text-blue-700">${item.codigo_maquina}</td>
+        <td class="py-3 px-4 font-bold text-xs text-slate-700">${item.modelo || 'DELL'}</td>
+        <td class="py-3 px-4">
+          <span class="inline-block px-2.5 py-1 bg-purple-100 text-purple-900 border border-purple-200 rounded-lg text-xs font-black shadow-xs">
+            ${item.lider_nombre || 'N/A'}
+          </span>
+          <div class="text-[11px] font-semibold text-slate-500 mt-0.5">${item.area}</div>
+        </td>
+        <td class="py-3 px-4 text-xs font-semibold text-slate-600">${item.despachado_por || '--'}</td>
+        <td class="py-3 px-4 text-center">
+          <span class="px-2.5 py-1 rounded-full text-xs font-black uppercase ${badgeClass}">
+            ${item.estado}
+          </span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+  lucide.createIcons();
 }
 
 function renderizarBitacoraCompleta() {
@@ -1123,7 +1185,7 @@ async function anularSolicitudSistemas(id, asesorNombre) {
 
 // Depuración masiva de todas las solicitudes aprobadas/pendientes que nunca salieron hoy
 async function depurarNoSalidosHoy() {
-  const fecha = document.getElementById('filtroSistemasFecha')?.value || new Date().toISOString().slice(0, 10);
+  const fecha = document.getElementById('filtroSistemasFecha')?.value || getFechaLocalEcuador();
 
   const confirmacion = confirm(`¿Desea limpiar y marcar como "NO SALIÓ" todas las solicitudes de la fecha ${fecha} que quedaron aprobadas pero que los asesores NUNCA fueron a retirar a garita?\n\nEsto liberará automáticamente las computadoras y limpiará el listado.`);
   if (!confirmacion) return;
@@ -1343,7 +1405,7 @@ function abrirHojaOficialImpresion() {
 }
 
 async function depurarNoSalidosHoy() {
-  const fecha = document.getElementById('filtroSistemasFecha')?.value || new Date().toISOString().slice(0, 10);
+  const fecha = document.getElementById('filtroSistemasFecha')?.value || getFechaLocalEcuador();
   if (!confirm(`¿Desea depurar todos los asesores aprobados para la fecha ${fecha} que NUNCA salieron por garita?\n\nPasarán a estado "NO RETIRÓ" para no congestionar garita ni reportes.`)) return;
 
   try {
@@ -1504,7 +1566,7 @@ async function cargarReporteLideres() {
                 <div class="text-[10px] text-emerald-700 uppercase font-bold">Devueltas</div>
               </div>
               
-              <a href="/api/hoja-control?lider=${encodeURIComponent(grupo.lider)}&fecha=${desde || new Date().toISOString().slice(0, 10)}" target="_blank" class="touch-btn px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm">
+              <a href="/api/hoja-control?lider=${encodeURIComponent(grupo.lider)}&fecha=${desde || getFechaLocalEcuador()}" target="_blank" class="touch-btn px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm">
                 <i data-lucide="printer" class="w-3.5 h-3.5"></i>
                 <span>Imprimir Hoja</span>
               </a>
@@ -1661,7 +1723,7 @@ async function cargarMiEquipoHabitual() {
     miEquipoHabitualCache = json.data;
 
     // Verificar el estado de solicitudes de hoy para estos asesores
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     const resSol = await fetchAuth(`/api/solicitudes?fecha=${today}&lider=${encodeURIComponent(liderNombre)}`);
     const jsonSol = await resSol.json();
     const solicitudesHoy = jsonSol.ok ? jsonSol.data : [];
@@ -1754,7 +1816,7 @@ async function autorizarSeleccionadosHabituales() {
 
   const liderNombre = currentUser ? currentUser.nombre : '';
   const areaLider = currentUser ? (currentUser.area || 'Operaciones') : 'Operaciones';
-  const fechaSalida = new Date().toISOString().slice(0, 10);
+  const fechaSalida = getFechaLocalEcuador();
 
   const asesores = Array.from(checkboxes).map(cb => ({
     cedula: cb.getAttribute('data-cedula'),
@@ -2019,7 +2081,7 @@ function descargarPlantillaLider(e) {
 
 async function cargarSolicitudesLiderHoy() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     let url = `/api/solicitudes?fecha=${today}`;
     if (currentUser && currentUser.rol === 'lider') {
       url += `&lider=${encodeURIComponent(currentUser.nombre)}`;
@@ -2031,14 +2093,36 @@ async function cargarSolicitudesLiderHoy() {
     const tbody = document.getElementById('tablaLiderHoy');
     if (!tbody) return;
 
-    if (!json.ok || json.data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400">No hay solicitudes registradas para hoy.</td></tr>`;
+    if (!json.ok || !json.data || json.data.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" class="p-6 text-center text-slate-400 font-medium">No hay solicitudes registradas para el turno de hoy.</td></tr>`;
       return;
     }
 
     tbody.innerHTML = json.data.map(item => {
-      const badgeClass = getBadgeClass(item.estado);
-      const detalle = item.estado === 'RECHAZADO' ? item.motivo_rechazo : (item.observaciones || '--');
+      let estadoBadge = '';
+      let detalle = '--';
+
+      if (item.estado === 'PENDIENTE') {
+        estadoBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-800 border border-amber-300">EN REVISIÓN TI</span>';
+        detalle = 'Esperando revisión y aprobación de Sistemas TI';
+      } else if (item.estado === 'APROBADO') {
+        estadoBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">APROBADO GARITA</span>';
+        detalle = `Aprobado por ${item.aprobado_por || 'Sistemas TI'}. Listo para retiro en garita`;
+      } else if (item.estado === 'SALIO') {
+        const horaSalida = item.despachado_en ? new Date(item.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+        estadoBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-300">EN TELETRABAJO</span>';
+        detalle = `Retiró de garita a las ${horaSalida || 'hoy'} (Guardia: ${item.despachado_por || 'Garita'})`;
+      } else if (item.estado === 'RETORNADO') {
+        const horaRet = item.retornado_en ? new Date(item.retornado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+        estadoBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-black bg-cyan-100 text-cyan-800 border border-cyan-300">RETORNADO</span>';
+        detalle = `Devolvió laptop a garita a las ${horaRet || 'hoy'} (Custodia: ${item.retornado_por || 'Garita'})`;
+      } else if (item.estado === 'RECHAZADO') {
+        estadoBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300">RECHAZADO</span>';
+        detalle = item.motivo_rechazo || 'Rechazado por Sistemas TI';
+      } else {
+        estadoBadge = `<span class="px-2.5 py-1 rounded-full text-xs font-black uppercase ${getBadgeClass(item.estado)}">${item.estado}</span>`;
+        detalle = item.observaciones || '--';
+      }
 
       return `
         <tr class="hover:bg-slate-50 transition">
@@ -2047,15 +2131,14 @@ async function cargarSolicitudesLiderHoy() {
           <td class="p-3 text-xs">${item.area}</td>
           <td class="p-3 font-mono text-xs font-bold text-blue-700">${item.codigo_maquina}</td>
           <td class="p-3 font-bold text-xs">${item.modelo || 'DELL'}</td>
-          <td class="p-3">
-            <span class="px-2.5 py-0.5 rounded-full text-xs font-black uppercase ${badgeClass}">
-              ${item.estado}
-            </span>
+          <td class="p-3 text-center">
+            ${estadoBadge}
           </td>
-          <td class="p-3 text-xs text-slate-500">${detalle}</td>
+          <td class="p-3 text-xs font-semibold text-slate-600">${detalle}</td>
         </tr>
       `;
     }).join('');
+    lucide.createIcons();
   } catch (error) {
     console.error('Error cargando solicitudes líder:', error);
   }
@@ -2263,7 +2346,7 @@ async function cargarAuditoria() {
 
 async function actualizarMetricasGenerales() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     const res = await fetchAuth(`/api/stats?fecha=${today}`);
     const json = await res.json();
 

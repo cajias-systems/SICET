@@ -21,6 +21,11 @@ if (!fs.existsSync(path.join(__dirname, 'uploads'))) {
   fs.mkdirSync(path.join(__dirname, 'uploads'));
 }
 
+// Función auxiliar para obtener fecha actual en zona horaria oficial de Ecuador (America/Guayaquil, UTC-5)
+function getFechaLocalEcuador(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(d);
+}
+
 // Función auxiliar para registrar auditoría
 async function registrarAuditoria(solicitudId, accion, usuario, detalles) {
   try {
@@ -38,7 +43,7 @@ async function registrarAuditoria(solicitudId, accion, usuario, detalles) {
 async function verificarDisponibilidadEquipo(codigoMaquina, cedula, fechaSalida = null, idIgnorar = null) {
   const normCodigo = (codigoMaquina || '').trim().toUpperCase();
   const normCedula = (cedula || '').trim();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getFechaLocalEcuador();
   const targetFecha = fechaSalida || today;
 
   // 1. Verificar si la máquina física ya está en estado 'SALIO' (en la calle sin retornar)
@@ -307,7 +312,7 @@ app.get('/api/lider/mi-equipo', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Nombre de líder requerido.' });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     const cleanLider = lider_nombre.trim();
     let asesores;
     if (cleanLider.toLowerCase() === 'ricardo') {
@@ -419,7 +424,7 @@ app.post('/api/lider/autorizar-lote-habitual', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Seleccione al menos un asesor de su equipo.' });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     const targetFecha = fecha_salida || today;
 
     const insertStmt = await db.prepare(`
@@ -508,8 +513,13 @@ app.get('/api/solicitudes', async (req, res) => {
     const params = [];
 
     if (fecha) {
-      query += ' AND fecha_salida = ?';
-      params.push(fecha);
+      if (lider && lider !== 'TODOS') {
+        query += ' AND (fecha_salida = ? OR created_at >= datetime("now", "-24 hours"))';
+        params.push(fecha);
+      } else {
+        query += ' AND fecha_salida = ?';
+        params.push(fecha);
+      }
     }
     if (area && area !== 'TODAS') {
       query += ' AND area = ?';
@@ -649,7 +659,7 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
 
     let insertados = 0;
     const errores = [];
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
 
     for (const row of rows) {
       const cedula = String(row['Cédula'] || row['Cedula'] || row['CEDULA'] || row['cedula'] || '').trim();
@@ -726,7 +736,7 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
 // 6. Descargar Plantilla Oficial Excel para Líderes (Con columna Modelo)
 app.get('/api/plantilla-excel', async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     const liderNombre = req.query.lider || 'Mi Nombre de Líder';
     const areaNombre = req.query.area || 'Campañas';
     const templateData = [
@@ -886,7 +896,7 @@ app.delete('/api/solicitudes/:id', requireRole(['sistemas']), async (req, res) =
 app.post('/api/solicitudes/depurar-no-salidos', requireRole(['sistemas']), async (req, res) => {
   try {
     const { fecha, operador = 'Sistemas' } = req.body;
-    const targetFecha = fecha || new Date().toISOString().slice(0, 10);
+    const targetFecha = fecha || getFechaLocalEcuador();
 
     // Seleccionar todos los registros de la fecha que quedaron en APROBADO o PENDIENTE pero nunca salieron
     const stmt = db.prepare(`
@@ -1018,7 +1028,7 @@ app.get('/api/garita/buscar', async (req, res) => {
     }
 
     const term = q.trim();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
 
     // Buscar coincidencia priorizando coincidencias exactas y estado APROBADO de hoy
     const rows = await db.prepare(`
@@ -1059,7 +1069,7 @@ app.get('/api/garita/buscar', async (req, res) => {
 // 11.1 Laptops Autorizadas por Sistemas Pendientes de Retiro/Despacho en Garita
 app.get('/api/garita/pendientes-despacho', async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     const fecha = req.query.fecha || today;
 
     // Obtener todas las solicitudes autorizadas que esperan despacho para la fecha (o anteriores aún no despachadas)
@@ -1068,6 +1078,27 @@ app.get('/api/garita/pendientes-despacho', async (req, res) => {
       WHERE estado = 'APROBADO' AND (fecha_salida = ? OR fecha_salida <= ?)
       ORDER BY fecha_salida DESC, area ASC, nombres ASC
     `).all(fecha, today);
+
+    res.json({ ok: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 11.2 Salidas Despachadas en este Turno para Garita (con ventana de 24 horas y orden cronológico)
+app.get('/api/garita/despachos-turno', async (req, res) => {
+  try {
+    const today = getFechaLocalEcuador();
+    const queryFecha = req.query.fecha || today;
+
+    const rows = await db.prepare(`
+      SELECT * FROM solicitudes 
+      WHERE (fecha_salida = ? OR (despachado_en IS NOT NULL AND despachado_en >= datetime('now', '-24 hours')))
+        AND estado IN ('SALIO', 'RETORNADO')
+      ORDER BY 
+        CASE WHEN despachado_en IS NOT NULL THEN despachado_en ELSE created_at END DESC,
+        id DESC
+    `).all(queryFecha);
 
     res.json({ ok: true, data: rows });
   } catch (error) {
@@ -1304,7 +1335,7 @@ app.get('/api/trazabilidad', async (req, res) => {
 app.get('/api/hoja-control', async (req, res) => {
   try {
     const { fecha, lider, area } = req.query;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     const targetFecha = fecha || today;
 
     let query = 'SELECT * FROM solicitudes WHERE fecha_salida = ?';
@@ -1590,7 +1621,7 @@ app.get('/api/hoja-control', async (req, res) => {
 // 17. Estadísticas del Dashboard
 app.get('/api/stats', async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getFechaLocalEcuador();
     const fecha = req.query.fecha || today;
 
     const totalHoyRow = await db.prepare('SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ?').get(fecha);
