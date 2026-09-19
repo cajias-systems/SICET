@@ -1181,18 +1181,52 @@ app.post('/api/garita/retornar', async (req, res) => {
     const { id, codigo_maquina, cedula, retornado_por = 'Guardia Garita', observaciones_retorno = '' } = req.body;
 
     let solicitud = null;
+    let yaRetornado = null;
+
     if (id) {
-      solicitud = await db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
+      solicitud = await db.prepare("SELECT * FROM solicitudes WHERE id = ?").get(id);
+      if (solicitud && solicitud.estado === 'RETORNADO') {
+        yaRetornado = solicitud;
+        solicitud = null;
+      }
     } else if (codigo_maquina) {
-      solicitud = await db.prepare("SELECT * FROM solicitudes WHERE codigo_maquina = ? AND estado = 'SALIO' ORDER BY id DESC").get(codigo_maquina.trim().toUpperCase());
+      const codeClean = codigo_maquina.trim().toUpperCase();
+      solicitud = await db.prepare("SELECT * FROM solicitudes WHERE (codigo_maquina = ? OR cedula = ?) AND estado = 'SALIO' ORDER BY id DESC").get(codeClean, codeClean);
+      if (!solicitud) {
+        yaRetornado = await db.prepare("SELECT * FROM solicitudes WHERE (codigo_maquina = ? OR cedula = ?) AND estado = 'RETORNADO' ORDER BY id DESC").get(codeClean, codeClean);
+      }
     } else if (cedula) {
-      solicitud = await db.prepare("SELECT * FROM solicitudes WHERE cedula = ? AND estado = 'SALIO' ORDER BY id DESC").get(cedula.trim());
+      const cedClean = cedula.trim();
+      solicitud = await db.prepare("SELECT * FROM solicitudes WHERE (cedula = ? OR codigo_maquina = ?) AND estado = 'SALIO' ORDER BY id DESC").get(cedClean, cedClean);
+      if (!solicitud) {
+        yaRetornado = await db.prepare("SELECT * FROM solicitudes WHERE (cedula = ? OR codigo_maquina = ?) AND estado = 'RETORNADO' ORDER BY id DESC").get(cedClean, cedClean);
+      }
     }
 
-    if (!solicitud) {
+    if (yaRetornado) {
+      return res.status(200).json({
+        ok: false,
+        ya_retornado: true,
+        error: `El equipo [${yaRetornado.codigo_maquina}] del asesor ${yaRetornado.nombres} ya fue reingresado previamente (recibido por ${yaRetornado.retornado_por || 'Garita'} el ${yaRetornado.retornado_en ? new Date(yaRetornado.retornado_en).toLocaleString('es-ES') : 'Hoy'}). Ya se encuentra en planta.`,
+        data: {
+          id: yaRetornado.id,
+          nombres: yaRetornado.nombres,
+          cedula: yaRetornado.cedula,
+          codigo_maquina: yaRetornado.codigo_maquina,
+          modelo: yaRetornado.modelo,
+          lider_nombre: yaRetornado.lider_nombre,
+          area: yaRetornado.area,
+          estado: 'RETORNADO',
+          retornado_por: yaRetornado.retornado_por,
+          retornado_en: yaRetornado.retornado_en
+        }
+      });
+    }
+
+    if (!solicitud || solicitud.estado !== 'SALIO') {
       return res.status(404).json({
         ok: false,
-        error: 'No se encontró ningún equipo en estado "SALIO" pendiente de retorno para este código o asesor.'
+        error: 'No se encontró ningún equipo en estado "SALIO" (en teletrabajo) pendiente de retorno para este código o asesor.'
       });
     }
 
@@ -1212,16 +1246,63 @@ app.post('/api/garita/retornar', async (req, res) => {
       solicitud.id,
       'RETORNO_CONFIRMADO',
       retornado_por,
-      `Equipo [${solicitud.codigo_maquina}] retornado a oficina por el asesor ${solicitud.nombres}`
+      `Equipo [${solicitud.codigo_maquina}] retornado a oficina por el asesor ${solicitud.nombres}. Pasa a estado PRESENCIAL.`
     );
 
     res.json({
       ok: true,
-      message: `¡Reingreso confirmado para el equipo ${solicitud.codigo_maquina}!`,
-      asesor: solicitud.nombres,
-      codigo_maquina: solicitud.codigo_maquina,
-      fecha_retorno: now
+      message: `¡Reingreso confirmado exitosamente! El asesor ${solicitud.nombres} pasa a estado PRESENCIAL.`,
+      data: {
+        id: solicitud.id,
+        nombres: solicitud.nombres,
+        cedula: solicitud.cedula,
+        codigo_maquina: solicitud.codigo_maquina,
+        modelo: solicitud.modelo,
+        lider_nombre: solicitud.lider_nombre,
+        area: solicitud.area,
+        estado_anterior: 'SALIO',
+        nuevo_estado: 'RETORNADO',
+        hora_salida: solicitud.despachado_en,
+        hora_retorno: now,
+        retornado_por: retornado_por
+      }
     });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 13.1 LISTA DE RETORNOS DEL TURNO (ÚLTIMAS 24 HORAS O FECHA ESPECÍFICA)
+app.get('/api/garita/retornos-turno', async (req, res) => {
+  try {
+    const { fecha, lider } = req.query;
+    let query = `
+      SELECT * FROM solicitudes 
+      WHERE estado = 'RETORNADO'
+        AND (
+          retornado_en >= datetime('now', '-24 hours')
+          ${fecha ? 'OR fecha_salida = ? OR retornado_en LIKE ?' : ''}
+        )
+    `;
+    const params = [];
+    if (fecha) {
+      params.push(fecha, `${fecha}%`);
+    }
+
+    if (lider && lider !== 'TODOS') {
+      const lidClean = lider.trim();
+      if (lidClean.toLowerCase() === 'ricardo') {
+        query += " AND (lider_nombre = 'Ricardo' OR UPPER(lider_nombre) LIKE '%RICARDO%')";
+      } else {
+        query += ' AND (lider_nombre = ? OR LOWER(lider_nombre) = LOWER(?))';
+        params.push(lidClean, lidClean);
+      }
+    }
+
+    query += ' ORDER BY retornado_en DESC, id DESC LIMIT 100';
+
+    const retornos = await db.prepare(query).all(...params);
+    res.json({ ok: true, data: retornos });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -1731,6 +1812,11 @@ app.get('/api/auditoria', async (req, res) => {
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
+});
+
+// Manejo de rutas /api no encontradas (debe ir antes del SPA fallback)
+app.use('/api', (req, res) => {
+  res.status(404).json({ ok: false, error: `Ruta de API no encontrada: ${req.method} ${req.originalUrl}` });
 });
 
 // Servir la aplicación web SPA (compatible con Express 4 y 5)

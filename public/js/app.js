@@ -7,6 +7,8 @@ let selectedSolicitudesSistemas = new Set();
 let debounceTimer = null;
 let ultimosDespachosCache = [];
 let despachosGaritaCache = [];
+let equiposFueraCache = [];
+let retornosHoyCache = [];
 
 // Obtener fecha actual en zona horaria oficial de Ecuador (America/Guayaquil, UTC-5)
 function getFechaLocalEcuador(d = new Date()) {
@@ -48,13 +50,21 @@ function playErrorSound() {
   setTimeout(() => playTone(160, 'sawtooth', 0.3), 180);
 }
 
-// Wrapper para llamadas HTTP incluyendo rol en cabecera
+// Wrapper para llamadas HTTP incluyendo rol en cabecera y validación robusta contra respuestas HTML (502/503/404)
 async function fetchAuth(url, options = {}) {
   const headers = options.headers || {};
   if (currentUser && currentUser.rol) {
     headers['x-user-role'] = currentUser.rol;
   }
-  return fetch(url, { ...options, headers });
+  const res = await fetch(url, { ...options, headers });
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    if (!res.ok) {
+      throw new Error(`El servidor se está reiniciando o actualizando (${res.status}). Por favor espere unos segundos e intente nuevamente.`);
+    }
+    throw new Error('La respuesta del servidor no tiene formato JSON válido.');
+  }
+  return res;
 }
 
 // =========================================================================
@@ -377,6 +387,7 @@ function cambiarModulo(moduloId) {
     cargarSolicitudesLiderHoy();
   } else if (moduloId === 'retornos') {
     cargarEquiposFuera();
+    cargarRetornosHoy();
     const inputRet = document.getElementById('inputEscaneoRetorno');
     if (inputRet) inputRet.focus();
   } else if (moduloId === 'auditoria') {
@@ -1612,7 +1623,7 @@ async function cargarReporteLideres() {
                       </td>
                       <td class="p-3 text-right">
                         ${isFuera ? `
-                          <button onclick="confirmarRetornoEquipo(${item.id}, '${item.nombres}')" class="touch-btn px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold shadow flex items-center gap-1 ml-auto">
+                          <button onclick="confirmarRetornoEquipo(${item.id}, '${(item.nombres || '').replace(/'/g, "\\'")}')" class="touch-btn px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold shadow flex items-center gap-1 ml-auto">
                             <i data-lucide="corner-down-left" class="w-3 h-3"></i>
                             <span>Registrar Devolución</span>
                           </button>
@@ -2145,48 +2156,205 @@ async function cargarSolicitudesLiderHoy() {
 }
 
 // =========================================================================
-// SECCIÓN 5: RETORNO DE EQUIPOS
+// SECCIÓN 5: RETORNO DE EQUIPOS (GARITA Y SISTEMAS)
 // =========================================================================
 
 async function cargarEquiposFuera() {
   try {
-    const res = await fetchAuth(`/api/solicitudes?estado=SALIO`);
+    const res = await fetchAuth('/api/solicitudes?estado=SALIO');
     const json = await res.json();
 
-    const tbody = document.getElementById('tablaEquiposFuera');
-    if (!tbody) return;
+    equiposFueraCache = (json.ok && Array.isArray(json.data)) ? json.data : [];
 
-    if (!json.ok || json.data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-slate-400 font-medium">No hay equipos pendientes de retorno en este momento.</td></tr>`;
-      return;
+    const badge = document.getElementById('badgeConteoPendientesRetorno');
+    if (badge) {
+      badge.textContent = `${equiposFueraCache.length} en teletrabajo`;
     }
 
-    tbody.innerHTML = json.data.map(item => {
-      const horaSalida = item.despachado_en ? new Date(item.despachado_en).toLocaleString('es-ES') : item.fecha_salida;
-
-      return `
-        <tr class="hover:bg-slate-50 transition">
-          <td class="p-3 font-bold text-slate-800">${item.nombres}</td>
-          <td class="p-3 font-mono text-xs">${item.cedula}</td>
-          <td class="p-3 text-xs font-semibold">${item.lider_nombre}</td>
-          <td class="p-3 font-mono text-xs font-bold text-blue-700">${item.codigo_maquina}</td>
-          <td class="p-3 font-bold text-xs">${item.modelo || 'DELL'}</td>
-          <td class="p-3 text-xs text-slate-600">${horaSalida}</td>
-          <td class="p-3 text-xs text-slate-600">${item.despachado_por || '--'}</td>
-          <td class="p-3 text-right">
-            <button onclick="confirmarRetornoEquipo(${item.id}, '${item.nombres}')" class="touch-btn px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-bold shadow flex items-center gap-1.5 ml-auto">
-              <i data-lucide="corner-down-left" class="w-3.5 h-3.5 text-emerald-400"></i>
-              <span>Reingresar</span>
-            </button>
-          </td>
-        </tr>
-      `;
-    }).join('');
-
-    lucide.createIcons();
+    actualizarComboFiltroLideresRetornos(equiposFueraCache);
+    filtrarEquiposFueraPorLider();
   } catch (error) {
     showToast('Error al cargar equipos fuera: ' + error.message, 'error');
   }
+}
+
+function actualizarComboFiltroLideresRetornos(items) {
+  const select = document.getElementById('filtroRetornosLider');
+  if (!select) return;
+
+  const currentVal = select.value || 'TODOS';
+  const conteoPorLider = {};
+  items.forEach(it => {
+    const l = (it.lider_nombre || 'Sin Líder').trim();
+    conteoPorLider[l] = (conteoPorLider[l] || 0) + 1;
+  });
+
+  let options = `<option value="TODOS">Todos los Líderes (${items.length})</option>`;
+  Object.keys(conteoPorLider).sort().forEach(l => {
+    options += `<option value="${l}">${l} (${conteoPorLider[l]})</option>`;
+  });
+  select.innerHTML = options;
+
+  if (conteoPorLider[currentVal] !== undefined || currentVal === 'TODOS') {
+    select.value = currentVal;
+  } else {
+    select.value = 'TODOS';
+  }
+}
+
+function filtrarEquiposFueraPorLider() {
+  const select = document.getElementById('filtroRetornosLider');
+  const lider = select ? select.value : 'TODOS';
+  const inputSearch = document.getElementById('inputBuscarRetornosPendientes');
+  const term = inputSearch ? inputSearch.value.trim().toLowerCase() : '';
+
+  const tbody = document.getElementById('tablaEquiposFuera');
+  if (!tbody) return;
+
+  let items = equiposFueraCache;
+  if (lider && lider !== 'TODOS') {
+    items = items.filter(it => (it.lider_nombre || 'Sin Líder').trim() === lider);
+  }
+  if (term) {
+    items = items.filter(it => 
+      (it.nombres && it.nombres.toLowerCase().includes(term)) ||
+      (it.cedula && it.cedula.includes(term)) ||
+      (it.codigo_maquina && it.codigo_maquina.toLowerCase().includes(term))
+    );
+  }
+
+  if (items.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="p-8 text-center text-slate-400 font-medium">
+          <i data-lucide="check-circle-2" class="w-8 h-8 mx-auto text-emerald-500 mb-2 opacity-60"></i>
+          No hay laptops pendientes de retorno con los filtros actuales.
+        </td>
+      </tr>
+    `;
+    lucide.createIcons();
+    return;
+  }
+
+  tbody.innerHTML = items.map(item => {
+    const horaSalida = item.despachado_en ? new Date(item.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : item.fecha_salida;
+    const safeName = (item.nombres || '').replace(/'/g, "\\'");
+
+    return `
+      <tr class="hover:bg-amber-50/50 transition border-b border-slate-100">
+        <td class="p-3">
+          <div class="font-black text-slate-900">${item.nombres}</div>
+          <div class="text-[10px] text-amber-800 font-bold uppercase tracking-wider">🚨 En Teletrabajo</div>
+        </td>
+        <td class="p-3 font-mono text-xs text-slate-700">${item.cedula}</td>
+        <td class="p-3">
+          <span class="px-2.5 py-1 bg-purple-50 text-purple-900 rounded-lg text-xs font-bold border border-purple-200">
+            ${item.lider_nombre}
+          </span>
+        </td>
+        <td class="p-3 font-mono text-xs font-black text-blue-700 bg-blue-50/60 rounded-lg">${item.codigo_maquina}</td>
+        <td class="p-3 font-bold text-xs text-slate-700">${item.modelo || 'DELL'}</td>
+        <td class="p-3 text-xs text-slate-600 font-medium">${horaSalida}</td>
+        <td class="p-3 text-xs text-slate-600">${item.despachado_por || '--'}</td>
+        <td class="p-3 text-center">
+          <button onclick="confirmarRetornoEquipo(${item.id}, '${safeName}')" class="touch-btn px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow flex items-center gap-1.5 mx-auto transition">
+            <i data-lucide="corner-down-left" class="w-3.5 h-3.5"></i>
+            <span>Reingresar</span>
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  lucide.createIcons();
+}
+
+async function cargarRetornosHoy() {
+  try {
+    const today = getFechaLocalEcuador();
+    const res = await fetchAuth(`/api/garita/retornos-turno?fecha=${today}`);
+    const json = await res.json();
+
+    retornosHoyCache = (json.ok && Array.isArray(json.data)) ? json.data : [];
+
+    const badge = document.getElementById('badgeConteoRetornadosHoy');
+    if (badge) {
+      badge.textContent = `${retornosHoyCache.length} reingresadas`;
+    }
+
+    actualizarComboFiltroRetornadosHoy(retornosHoyCache);
+    filtrarRetornadosHoyPorLider();
+  } catch (error) {
+    console.error('Error cargando retornos del turno:', error);
+  }
+}
+
+function actualizarComboFiltroRetornadosHoy(items) {
+  const select = document.getElementById('filtroRetornadosHoyLider');
+  if (!select) return;
+
+  const currentVal = select.value || 'TODOS';
+  const conteoPorLider = {};
+  items.forEach(it => {
+    const l = (it.lider_nombre || 'Sin Líder').trim();
+    conteoPorLider[l] = (conteoPorLider[l] || 0) + 1;
+  });
+
+  let options = `<option value="TODOS">Todos los Líderes (${items.length})</option>`;
+  Object.keys(conteoPorLider).sort().forEach(l => {
+    options += `<option value="${l}">${l} (${conteoPorLider[l]})</option>`;
+  });
+  select.innerHTML = options;
+
+  if (conteoPorLider[currentVal] !== undefined || currentVal === 'TODOS') {
+    select.value = currentVal;
+  } else {
+    select.value = 'TODOS';
+  }
+}
+
+function filtrarRetornadosHoyPorLider() {
+  const select = document.getElementById('filtroRetornadosHoyLider');
+  const lider = select ? select.value : 'TODOS';
+  const tbody = document.getElementById('tablaRetornosHoy');
+  if (!tbody) return;
+
+  let items = retornosHoyCache;
+  if (lider && lider !== 'TODOS') {
+    items = items.filter(it => (it.lider_nombre || 'Sin Líder').trim() === lider);
+  }
+
+  if (items.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="p-8 text-center text-slate-400 font-medium">
+          No hay laptops reingresadas registradas aún en este turno.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = items.map(item => {
+    const horaRetorno = item.retornado_en ? new Date(item.retornado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--';
+
+    return `
+      <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+        <td class="p-3 font-mono font-bold text-xs text-emerald-800">${horaRetorno}</td>
+        <td class="p-3 font-bold text-slate-900">${item.nombres}</td>
+        <td class="p-3 font-mono text-xs text-slate-600">${item.cedula}</td>
+        <td class="p-3 font-mono text-xs font-bold text-blue-700">${item.codigo_maquina}</td>
+        <td class="p-3 font-bold text-xs text-slate-700">${item.modelo || 'DELL'}</td>
+        <td class="p-3 text-xs font-semibold text-slate-800">${item.lider_nombre}</td>
+        <td class="p-3 text-xs text-slate-600">${item.retornado_por || 'Garita'}</td>
+        <td class="p-3 text-center">
+          <span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
+            ✓ PRESENCIAL
+          </span>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 async function ejecutarRetornoPorEscaneo(e) {
@@ -2201,48 +2369,176 @@ async function ejecutarRetornoPorEscaneo(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         codigo_maquina: term,
-        retornado_por: currentUser ? currentUser.nombre : 'Garita'
+        cedula: term,
+        retornado_por: currentUser ? currentUser.nombre : 'Guardia Garita'
       })
     });
     const json = await res.json();
 
     if (json.ok) {
       playSuccessSound();
-      showToast(json.message, 'success');
+      mostrarConfirmacionRetorno(json.data);
       input.value = '';
       input.focus();
       cargarEquiposFuera();
+      cargarRetornosHoy();
       actualizarMetricasGenerales();
+    } else if (json.ya_retornado) {
+      playTone(440, 'triangle', 0.2);
+      mostrarAlertaYaRetornado(json.data);
+      input.value = '';
+      input.focus();
     } else {
       playErrorSound();
-      alert(json.error || 'No se encontró equipo para reingresar.');
+      showToast(json.error || 'No se encontró equipo para reingresar.', 'error');
     }
   } catch (error) {
-    showToast('Error: ' + error.message, 'error');
+    showToast(error.message, 'error');
   }
 }
 
 async function confirmarRetornoEquipo(id, asesorNombre) {
-  if (!confirm(`¿Confirmar reingreso físico del equipo del asesor ${asesorNombre}?`)) return;
+  if (!confirm(`¿Confirmar reingreso físico del equipo del asesor ${asesorNombre}?\n\nAl confirmar, el asesor cambiará a estado PRESENCIAL (Equipo bajo custodia en oficina).`)) return;
 
   try {
     const res = await fetchAuth('/api/garita/retornar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, retornado_por: currentUser ? currentUser.nombre : 'Garita' })
+      body: JSON.stringify({ id, retornado_por: currentUser ? currentUser.nombre : 'Guardia Garita' })
     });
     const json = await res.json();
 
     if (json.ok) {
       playSuccessSound();
-      showToast('Equipo retornado a oficina con éxito', 'success');
+      mostrarConfirmacionRetorno(json.data);
       cargarEquiposFuera();
+      cargarRetornosHoy();
       actualizarMetricasGenerales();
+    } else if (json.ya_retornado) {
+      mostrarAlertaYaRetornado(json.data);
     } else {
-      alert(json.error || 'Error al procesar el retorno.');
+      showToast(json.error || 'Error al procesar el retorno.', 'error');
     }
   } catch (error) {
-    showToast('Error: ' + error.message, 'error');
+    showToast(error.message, 'error');
+  }
+}
+
+function mostrarConfirmacionRetorno(data) {
+  const container = document.getElementById('contenedorResultadoRetorno');
+  if (!container) return;
+
+  const horaRet = data.hora_retorno ? new Date(data.hora_retorno).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Recién';
+
+  container.innerHTML = `
+    <div class="bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-100 border-4 border-emerald-500 text-emerald-950 p-6 sm:p-7 rounded-3xl shadow-xl">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-emerald-200">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shadow-md font-black shrink-0">
+            <i data-lucide="shield-check" class="w-7 h-7"></i>
+          </div>
+          <div>
+            <span class="px-3 py-0.5 bg-emerald-600 text-white text-[11px] font-black uppercase rounded-full tracking-wider shadow-xs">
+              ✓ REINGRESO FÍSICO CONFIRMADO
+            </span>
+            <div class="text-xs font-bold text-emerald-800 mt-1 flex flex-wrap items-center gap-1.5">
+              <span>ESTADO ACTUALIZADO:</span>
+              <span class="px-2 py-0.5 bg-white border border-emerald-400 text-emerald-900 rounded font-black">
+                🏢 ASESOR EN PLANTA / PRESENCIAL
+              </span>
+            </div>
+          </div>
+        </div>
+        <button onclick="cerrarResultadoRetorno()" class="touch-btn px-4 py-2 bg-emerald-200 hover:bg-emerald-300 text-emerald-950 rounded-xl text-xs font-black self-end sm:self-auto transition">
+          ✕ Cerrar / Siguiente
+        </button>
+      </div>
+
+      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white/90 backdrop-blur p-4 rounded-2xl border border-emerald-200 shadow-xs">
+          <div class="text-[10px] font-black uppercase text-slate-500">Asesor que Reingresa</div>
+          <div class="text-base font-black text-slate-900 mt-0.5 leading-tight">${data.nombres}</div>
+          <div class="text-xs font-mono text-slate-600 mt-1 font-semibold">Cédula: ${data.cedula}</div>
+        </div>
+
+        <div class="bg-white/90 backdrop-blur p-4 rounded-2xl border border-emerald-200 shadow-xs">
+          <div class="text-[10px] font-black uppercase text-slate-500">Equipo Devuelto</div>
+          <div class="text-base font-mono font-black text-blue-800 mt-0.5">${data.codigo_maquina}</div>
+          <div class="text-xs font-bold text-slate-600 mt-1">Modelo: ${data.modelo || 'DELL'}</div>
+        </div>
+
+        <div class="bg-white/90 backdrop-blur p-4 rounded-2xl border border-emerald-200 shadow-xs">
+          <div class="text-[10px] font-black uppercase text-slate-500">Líder & Área</div>
+          <div class="text-base font-black text-slate-800 mt-0.5">${data.lider_nombre}</div>
+          <div class="text-xs text-slate-600 font-medium">${data.area || 'Operaciones'}</div>
+        </div>
+
+        <div class="bg-white/90 backdrop-blur p-4 rounded-2xl border border-emerald-200 shadow-xs">
+          <div class="text-[10px] font-black uppercase text-slate-500">Hora de Recepción</div>
+          <div class="text-base font-black text-emerald-700 mt-0.5">${horaRet}</div>
+          <div class="text-xs text-slate-600 font-medium">Receptor: ${data.retornado_por || 'Garita'}</div>
+        </div>
+      </div>
+
+      <div class="mt-4 p-3 bg-white/70 rounded-xl border border-emerald-300 text-xs font-semibold text-emerald-950 flex items-center gap-2">
+        <i data-lucide="info" class="w-4 h-4 text-emerald-600 shrink-0"></i>
+        <span>El equipo ha reingresado a custodia de la empresa. Si el líder requiere que este asesor vuelva a salir más tarde o en días posteriores, podrá emitir una nueva solicitud normalmente.</span>
+      </div>
+    </div>
+  `;
+
+  container.classList.remove('hidden');
+  lucide.createIcons();
+  container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function mostrarAlertaYaRetornado(data) {
+  const container = document.getElementById('contenedorResultadoRetorno');
+  if (!container) return;
+
+  const horaRet = data.retornado_en ? new Date(data.retornado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Hoy';
+
+  container.innerHTML = `
+    <div class="bg-amber-50 border-4 border-amber-400 text-amber-950 p-6 sm:p-7 rounded-3xl shadow-xl">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-amber-200">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-md font-black shrink-0">
+            <i data-lucide="alert-triangle" class="w-7 h-7"></i>
+          </div>
+          <div>
+            <span class="px-3 py-0.5 bg-amber-600 text-white text-[11px] font-black uppercase rounded-full tracking-wider shadow-xs">
+              ⚠️ ATENCIÓN: ESTE EQUIPO YA FUE REINGRESADO
+            </span>
+            <div class="text-xs font-bold text-amber-900 mt-1">
+              EL ASESOR YA SE ENCUENTRA EN ESTADO PRESENCIAL / EN PLANTA
+            </div>
+          </div>
+        </div>
+        <button onclick="cerrarResultadoRetorno()" class="touch-btn px-4 py-2 bg-amber-200 hover:bg-amber-300 text-amber-950 rounded-xl text-xs font-black self-end sm:self-auto transition">
+          ✕ Cerrar
+        </button>
+      </div>
+
+      <div class="mt-4 p-4 bg-white rounded-2xl border border-amber-200 text-xs text-amber-950 space-y-1">
+        <p class="text-base font-black text-slate-900">${data.nombres} (C.I: ${data.cedula})</p>
+        <p class="font-medium text-slate-700">Equipo <strong>${data.codigo_maquina} (${data.modelo || 'DELL'})</strong> ya fue recibido en Garita a las <strong>${horaRet}</strong> por <strong>${data.retornado_por || 'Garita'}</strong>.</p>
+        <p class="text-amber-800 font-bold mt-2">No es necesario reingresarlo nuevamente. El equipo ya está bajo custodia de la empresa.</p>
+      </div>
+    </div>
+  `;
+
+  container.classList.remove('hidden');
+  lucide.createIcons();
+  container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function cerrarResultadoRetorno() {
+  const container = document.getElementById('contenedorResultadoRetorno');
+  if (container) container.classList.add('hidden');
+  const input = document.getElementById('inputEscaneoRetorno');
+  if (input) {
+    input.value = '';
+    input.focus();
   }
 }
 

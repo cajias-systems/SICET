@@ -813,45 +813,175 @@
       <!-- ============================================================= -->
       <!-- MODULO 5: RETORNO DE EQUIPOS (GARITA Y SISTEMAS) -->
       <!-- ============================================================= -->
+      <!-- ============================================================= -->
+      <!-- MODULO 5: RETORNO DE EQUIPOS (GARITA Y SISTEMAS) -->
+      <!-- ============================================================= -->
       <section id="modulo-retornos" class="hidden space-y-6">
+        
+        <!-- CABECERA PRINCIPAL Y PISTOLA DE ESCANEO DE RETORNO -->
         <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
             <div>
-              <h1 class="text-2xl font-black text-slate-800">Reingreso y Retorno de Equipos (Check-in)</h1>
-              <p class="text-slate-500 text-xs mt-0.5">Escanee la serie de la máquina que devuelve el asesor para dar por cerrado el préstamo.</p>
+              <div class="flex items-center gap-2">
+                <span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-black uppercase rounded-full border border-emerald-300">
+                  Reingreso de Teletrabajo
+                </span>
+                <span class="px-3 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded-full">
+                  Pase a Estado Presencial
+                </span>
+              </div>
+              <h1 class="text-2xl sm:text-3xl font-black text-slate-900 mt-2">Reingreso y Retorno de Laptops a Oficina</h1>
+              <p class="text-slate-500 text-xs sm:text-sm mt-0.5">
+                Escanee la serie de la laptop o pulse <strong>Reingresar</strong>. El sistema confirmará el reingreso físico y actualizará al asesor a <strong>PRESENCIAL</strong> al instante.
+              </p>
             </div>
             
-            <form onsubmit="ejecutarRetornoPorEscaneo(event)" class="flex items-center gap-2">
-              <input 
-                type="text" 
-                id="inputEscaneoRetorno" 
-                placeholder="Escanee serie para retorno..." 
-                class="px-4 py-2 text-sm font-mono font-bold uppercase border-2 border-slate-300 rounded-xl focus:border-blue-600 focus:outline-none w-64"
-              >
-              <button type="submit" class="touch-btn px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow">
-                Registrar Retorno
+            <!-- FORMULARIO DE ESCANEO RÁPIDO CON PISTOLA -->
+            <form onsubmit="ejecutarRetornoPorEscaneo(event)" class="flex items-center gap-2 bg-slate-50 p-2 rounded-2xl border-2 border-emerald-500/50 shadow-inner">
+              <div class="relative">
+                <i data-lucide="scan-line" class="w-5 h-5 text-emerald-600 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                <input 
+                  type="text" 
+                  id="inputEscaneoRetorno" 
+                  autocomplete="off"
+                  placeholder="Escanear serie o cédula..." 
+                  class="pl-10 pr-4 py-2.5 text-sm font-mono font-black uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-none w-64 sm:w-72 bg-white"
+                >
+              </div>
+              <button type="submit" class="touch-btn px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow flex items-center gap-2 transition">
+                <i data-lucide="corner-down-left" class="w-4 h-4"></i>
+                <span>Reingresar</span>
               </button>
             </form>
           </div>
 
-          <div class="mt-6 overflow-x-auto">
+          <!-- CONTENEDOR DE RESULTADO / CONFIRMACIÓN VISUAL DESTACADA (APARECE AL RETORNAR) -->
+          <div id="contenedorResultadoRetorno" class="mt-4 hidden transition-all duration-300">
+            <!-- Se llena dinámicamente con la tarjeta de confirmación o alerta -->
+          </div>
+        </div>
+
+        <!-- TABLA DE EQUIPOS FUERA (PENDIENTES DE DEVOLUCIÓN) -->
+        <div class="bg-white rounded-3xl shadow-sm border-2 border-amber-500/40 p-6 relative overflow-hidden">
+          <div class="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600"></div>
+          
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-amber-100">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center font-black">
+                <i data-lucide="laptop" class="w-6 h-6"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h2 class="font-black text-lg text-slate-900">Laptops Actualmente Fuera (Teletrabajo)</h2>
+                  <span id="badgeConteoPendientesRetorno" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-amber-600 text-white shadow-sm">
+                    0 en teletrabajo
+                  </span>
+                </div>
+                <p class="text-xs text-slate-500 font-medium">Asesores que retiraron el equipo y aún no registran retorno físico en Garita.</p>
+              </div>
+            </div>
+
+            <!-- FILTROS Y ACCIONES -->
+            <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+              <!-- Filtro por Líder -->
+              <div class="flex items-center gap-1.5 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-300 shadow-sm">
+                <i data-lucide="filter" class="w-3.5 h-3.5 text-amber-800"></i>
+                <span class="text-xs font-black text-amber-950">Líder:</span>
+                <select id="filtroRetornosLider" onchange="filtrarEquiposFueraPorLider()" class="bg-transparent text-xs font-black text-amber-900 focus:outline-none cursor-pointer">
+                  <option value="TODOS">Todos los Líderes</option>
+                </select>
+              </div>
+
+              <!-- Buscador Rápido -->
+              <div class="relative">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2"></i>
+                <input 
+                  type="text" 
+                  id="inputBuscarRetornosPendientes" 
+                  placeholder="Filtrar por asesor o serie..." 
+                  oninput="filtrarEquiposFueraPorLider()" 
+                  class="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none w-48"
+                >
+              </div>
+
+              <!-- Botón Actualizar -->
+              <button onclick="cargarEquiposFuera()" class="touch-btn text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
             <table class="w-full text-left text-sm">
-              <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-bold border-b border-slate-200">
+              <thead class="bg-amber-50/70 text-amber-950 uppercase text-xs font-black border-b border-amber-200">
                 <tr>
-                  <th class="p-3">Asesor</th>
-                  <th class="p-3">Cédula</th>
-                  <th class="p-3">Líder</th>
-                  <th class="p-3">N° Serie</th>
-                  <th class="p-3">Modelo</th>
-                  <th class="p-3">Fecha y Hora de Salida</th>
-                  <th class="p-3">Guardia que Despachó</th>
-                  <th class="p-3 text-right">Confirmar Retorno</th>
+                  <th class="py-3 px-4">Asesor</th>
+                  <th class="py-3 px-4">Cédula</th>
+                  <th class="py-3 px-4">Líder</th>
+                  <th class="py-3 px-4">N° Serie Laptop</th>
+                  <th class="py-3 px-4">Modelo</th>
+                  <th class="py-3 px-4">Fecha y Hora de Salida</th>
+                  <th class="py-3 px-4">Guardia Despacho</th>
+                  <th class="py-3 px-4 text-center">Acción Inmediata</th>
                 </tr>
               </thead>
               <tbody id="tablaEquiposFuera" class="divide-y divide-slate-100 font-medium"></tbody>
             </table>
           </div>
         </div>
+
+        <!-- TABLA DE EQUIPOS REINGRESADOS EN ESTE TURNO -->
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-black">
+                <i data-lucide="check-circle" class="w-6 h-6"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h2 class="font-extrabold text-lg text-slate-900">Laptops Reingresadas en este Turno</h2>
+                  <span id="badgeConteoRetornadosHoy" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-xs">
+                    0 reingresadas
+                  </span>
+                </div>
+                <p class="text-xs text-slate-500 font-medium">Historial de confirmaciones físicas de reingreso realizadas por Garita.</p>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+              <!-- Filtro por Líder -->
+              <div class="flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-300 shadow-xs">
+                <i data-lucide="filter" class="w-3.5 h-3.5 text-emerald-800"></i>
+                <span class="text-xs font-black text-emerald-950">Líder:</span>
+                <select id="filtroRetornadosHoyLider" onchange="filtrarRetornadosHoyPorLider()" class="bg-transparent text-xs font-black text-emerald-900 focus:outline-none cursor-pointer">
+                  <option value="TODOS">Todos los Líderes</option>
+                </select>
+              </div>
+              <button onclick="cargarRetornosHoy()" class="touch-btn text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="text-xs uppercase bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                <tr>
+                  <th class="py-3 px-4">Hora Reingreso</th>
+                  <th class="py-3 px-4">Asesor</th>
+                  <th class="py-3 px-4">Cédula</th>
+                  <th class="py-3 px-4">N° de Serie</th>
+                  <th class="py-3 px-4">Modelo</th>
+                  <th class="py-3 px-4">Líder de Área</th>
+                  <th class="py-3 px-4">Guardia Receptor</th>
+                  <th class="py-3 px-4 text-center">Estado Oficial</th>
+                </tr>
+              </thead>
+              <tbody id="tablaRetornosHoy" class="divide-y divide-slate-100 font-medium"></tbody>
+            </table>
+          </div>
+        </div>
+
       </section>
 
       <!-- ============================================================= -->
