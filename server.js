@@ -300,6 +300,197 @@ app.post('/api/lideres-directorio', requireRole(['sistemas']), async (req, res) 
   }
 });
 
+// Actualizar información y laptop asignada a un líder (Sistemas)
+app.put('/api/lideres-directorio/:id', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nombre, nombre_completo, codigo_maquina, modelo = 'Laptop', area_default = 'Cobranzas', activo = 1 } = req.body;
+
+    const stmt = db.prepare(`
+      UPDATE lideres_directorio 
+      SET nombre = COALESCE(?, nombre),
+          nombre_completo = COALESCE(?, nombre_completo),
+          codigo_maquina = COALESCE(?, codigo_maquina),
+          modelo = COALESCE(?, modelo),
+          area_default = COALESCE(?, area_default),
+          activo = COALESCE(?, activo)
+      WHERE id = ?
+    `);
+    await stmt.run(
+      nombre ? nombre.trim() : null,
+      nombre_completo ? nombre_completo.trim() : null,
+      codigo_maquina ? codigo_maquina.trim().toUpperCase() : null,
+      modelo ? modelo.trim() : null,
+      area_default ? area_default.trim() : null,
+      activo !== undefined ? Number(activo) : null,
+      id
+    );
+
+    await registrarAuditoria(null, 'LIDER_ACTUALIZADO', 'Sistemas', `Líder ID ${id} actualizado (Laptop: ${codigo_maquina || 'Sin cambio'})`);
+    res.json({ ok: true, message: 'Datos del líder y laptop actualizados correctamente.' });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Registrar movimiento libre (Salida o Entrada) de laptop para un Líder en Garita
+app.post('/api/garita/lideres/movimiento', async (req, res) => {
+  try {
+    const { lider_id, codigo_maquina, tipo_movimiento, guardia = 'Guardia Garita', observaciones = '' } = req.body;
+
+    let lider = null;
+    if (lider_id) {
+      lider = await db.prepare('SELECT * FROM lideres_directorio WHERE id = ?').get(lider_id);
+    } else if (codigo_maquina) {
+      lider = await db.prepare('SELECT * FROM lideres_directorio WHERE UPPER(codigo_maquina) = ?').get(codigo_maquina.trim().toUpperCase());
+    }
+
+    if (!lider) {
+      return res.status(404).json({ ok: false, error: 'No se encontró ningún líder registrado con este código de máquina.' });
+    }
+
+    // Si no se especificó tipo, alternar según su estado actual
+    let tipo = tipo_movimiento;
+    if (!tipo) {
+      tipo = (lider.estado_ubicacion === 'FUERA') ? 'ENTRADA' : 'SALIDA';
+    }
+
+    const nuevoEstado = (tipo === 'SALIDA') ? 'FUERA' : 'EN_PLANTA';
+    const now = new Date().toISOString();
+
+    // 1. Guardar en bitácora de movimientos
+    const stmtMov = db.prepare(`
+      INSERT INTO lideres_movimientos (lider_id, lider_nombre, nombre_completo, codigo_maquina, tipo_movimiento, guardia, fecha_hora, observaciones)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    await stmtMov.run(
+      lider.id,
+      lider.nombre,
+      lider.nombre_completo || lider.nombre,
+      lider.codigo_maquina,
+      tipo,
+      guardia,
+      now,
+      observaciones
+    );
+
+    // 2. Actualizar estado de ubicación en el directorio
+    const stmtDir = db.prepare(`
+      UPDATE lideres_directorio
+      SET estado_ubicacion = ?,
+          ultimo_movimiento_en = ?,
+          ultimo_movimiento_tipo = ?,
+          ultimo_guardia = ?
+      WHERE id = ?
+    `);
+    await stmtDir.run(nuevoEstado, now, tipo, guardia, lider.id);
+
+    // 3. Registrar auditoría
+    await registrarAuditoria(
+      null,
+      `LIDER_${tipo}`,
+      guardia,
+      `Líder ${lider.nombre_completo || lider.nombre} (${lider.codigo_maquina}) registró ${tipo === 'SALIDA' ? 'SALIDA LIBRE' : 'REINGRESO'} en garita. Estado actual: [${nuevoEstado}].`
+    );
+
+    res.json({
+      ok: true,
+      message: `¡${tipo === 'SALIDA' ? 'Salida libre' : 'Reingreso'} registrado con éxito para el líder ${lider.nombre_completo || lider.nombre}!`,
+      data: {
+        id: lider.id,
+        nombre: lider.nombre,
+        nombre_completo: lider.nombre_completo,
+        codigo_maquina: lider.codigo_maquina,
+        modelo: lider.modelo,
+        tipo_movimiento: tipo,
+        estado_ubicacion: nuevoEstado,
+        fecha_hora: now,
+        guardia
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Obtener bitácora de movimientos de líderes
+app.get('/api/garita/lideres/movimientos', async (req, res) => {
+  try {
+    const { fecha, lider_id } = req.query;
+    let query = 'SELECT * FROM lideres_movimientos WHERE 1=1';
+    const params = [];
+
+    if (fecha) {
+      query += ' AND fecha_hora LIKE ?';
+      params.push(`${fecha}%`);
+    } else {
+      query += " AND fecha_hora >= datetime('now', '-24 hours')";
+    }
+
+    if (lider_id) {
+      query += ' AND lider_id = ?';
+      params.push(lider_id);
+    }
+
+    query += ' ORDER BY id DESC LIMIT 100';
+
+    const movimientos = await db.prepare(query).all(...params);
+    res.json({ ok: true, data: movimientos });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Verificar si una máquina escaneada pertenece al líder indicado
+app.post('/api/garita/lideres/verificar-coincidencia', async (req, res) => {
+  try {
+    const { lider_nombre, codigo_maquina } = req.body;
+    if (!lider_nombre || !codigo_maquina) {
+      return res.status(400).json({ ok: false, error: 'Líder y código de máquina requeridos.' });
+    }
+
+    const lider = await db.prepare('SELECT * FROM lideres_directorio WHERE LOWER(nombre) = LOWER(?) OR LOWER(nombre_completo) = LOWER(?)').get(lider_nombre.trim(), lider_nombre.trim());
+    if (!lider) {
+      return res.status(404).json({ ok: false, error: 'Líder no encontrado en el directorio.' });
+    }
+
+    const normEscaneado = codigo_maquina.trim().toUpperCase();
+    const normAsignado = (lider.codigo_maquina || '').trim().toUpperCase();
+
+    if (normEscaneado === normAsignado) {
+      return res.json({
+        ok: true,
+        coincide: true,
+        lider,
+        message: `Coincidencia verificada: La máquina [${normEscaneado}] le pertenece oficialmente al líder ${lider.nombre_completo || lider.nombre}.`
+      });
+    } else {
+      // Buscar a quién pertenece la máquina escaneada
+      const otroLider = await db.prepare('SELECT * FROM lideres_directorio WHERE UPPER(codigo_maquina) = ?').get(normEscaneado);
+      const asesor = await db.prepare('SELECT * FROM solicitudes WHERE UPPER(codigo_maquina) = ? ORDER BY id DESC').get(normEscaneado);
+
+      let dueno = 'No registrada en el sistema';
+      if (otroLider) {
+        dueno = `Pertenece a otro líder: ${otroLider.nombre_completo || otroLider.nombre}`;
+      } else if (asesor) {
+        dueno = `Pertenece al asesor: ${asesor.nombres} (Líder: ${asesor.lider_nombre})`;
+      }
+
+      return res.json({
+        ok: true,
+        coincide: false,
+        lider,
+        codigo_escaneado: normEscaneado,
+        codigo_asignado: normAsignado,
+        pertenece_a: dueno,
+        error: `ALERTA DE SEGURIDAD: La máquina [${normEscaneado}] NO le pertenece al líder ${lider.nombre_completo || lider.nombre}. Su laptop asignada es [${normAsignado || 'Ninguna'}]. (${dueno})`
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // ==========================================
 // RUTAS DEL CATÁLOGO DE ASESORES ("MI EQUIPO HABITUAL")
 // ==========================================
@@ -1030,7 +1221,22 @@ app.get('/api/garita/buscar', async (req, res) => {
     const term = q.trim();
     const today = getFechaLocalEcuador();
 
-    // Buscar coincidencia priorizando coincidencias exactas y estado APROBADO de hoy
+    // 1. Verificar si el término coincide con la laptop asignada a un Líder oficial (Paso Libre)
+    const liderMatch = await db.prepare(`
+      SELECT * FROM lideres_directorio 
+      WHERE (UPPER(codigo_maquina) = ? OR LOWER(nombre) = LOWER(?) OR LOWER(nombre_completo) = LOWER(?)) AND activo = 1
+    `).get(term.toUpperCase(), term, term);
+
+    if (liderMatch) {
+      return res.json({
+        ok: true,
+        encontrado: true,
+        es_lider: true,
+        lider: liderMatch
+      });
+    }
+
+    // 2. Buscar coincidencia en solicitudes de asesores priorizando coincidencias exactas y estado APROBADO de hoy
     const rows = await db.prepare(`
       SELECT * FROM solicitudes 
       WHERE (cedula = ? OR codigo_maquina = ? OR cedula LIKE ? OR codigo_maquina LIKE ?)
@@ -1182,6 +1388,45 @@ app.post('/api/garita/retornar', async (req, res) => {
 
     let solicitud = null;
     let yaRetornado = null;
+
+    // Si se envía código de máquina o cédula, verificar primero si es laptop de un líder
+    const searchCode = (codigo_maquina || cedula || '').trim().toUpperCase();
+    if (searchCode) {
+      const liderMatch = await db.prepare("SELECT * FROM lideres_directorio WHERE UPPER(codigo_maquina) = ? AND activo = 1").get(searchCode);
+      if (liderMatch) {
+        const now = new Date().toISOString();
+        await db.prepare(`
+          INSERT INTO lideres_movimientos (lider_id, lider_nombre, nombre_completo, codigo_maquina, tipo_movimiento, guardia, fecha_hora, observaciones)
+          VALUES (?, ?, ?, ?, 'ENTRADA', ?, ?, 'Reingreso registrado desde pantalla de Retornos')
+        `).run(liderMatch.id, liderMatch.nombre, liderMatch.nombre_completo || liderMatch.nombre, liderMatch.codigo_maquina, retornado_por, now);
+
+        await db.prepare(`
+          UPDATE lideres_directorio 
+          SET estado_ubicacion = 'EN_PLANTA', ultimo_movimiento_en = ?, ultimo_movimiento_tipo = 'ENTRADA', ultimo_guardia = ?
+          WHERE id = ?
+        `).run(now, retornado_por, liderMatch.id);
+
+        await registrarAuditoria(null, 'LIDER_ENTRADA', retornado_por, `Líder ${liderMatch.nombre_completo || liderMatch.nombre} (${liderMatch.codigo_maquina}) reingresó a planta.`);
+
+        return res.json({
+          ok: true,
+          es_lider: true,
+          message: `¡Reingreso confirmado exitosamente! El líder ${liderMatch.nombre_completo || liderMatch.nombre} reingresa a oficina.`,
+          data: {
+            id: liderMatch.id,
+            nombres: liderMatch.nombre_completo || liderMatch.nombre,
+            cedula: 'LÍDER',
+            codigo_maquina: liderMatch.codigo_maquina,
+            modelo: liderMatch.modelo,
+            lider_nombre: liderMatch.nombre,
+            area: liderMatch.area_default || 'Cobranzas',
+            nuevo_estado: 'EN_PLANTA',
+            hora_retorno: now,
+            retornado_por
+          }
+        });
+      }
+    }
 
     if (id) {
       solicitud = await db.prepare("SELECT * FROM solicitudes WHERE id = ?").get(id);

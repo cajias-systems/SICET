@@ -9,6 +9,8 @@ let ultimosDespachosCache = [];
 let despachosGaritaCache = [];
 let equiposFueraCache = [];
 let retornosHoyCache = [];
+let lideresEquiposCache = [];
+let lideresMovimientosCache = [];
 
 // Obtener fecha actual en zona horaria oficial de Ecuador (America/Guayaquil, UTC-5)
 function getFechaLocalEcuador(d = new Date()) {
@@ -48,6 +50,13 @@ function playSuccessSound() {
 function playErrorSound() {
   playTone(220, 'sawtooth', 0.2);
   setTimeout(() => playTone(160, 'sawtooth', 0.3), 180);
+}
+
+function playLeaderSound() {
+  playTone(587.33, 'triangle', 0.12);
+  setTimeout(() => playTone(739.99, 'triangle', 0.12), 100);
+  setTimeout(() => playTone(880, 'triangle', 0.15), 200);
+  setTimeout(() => playTone(1174.66, 'sine', 0.3), 320);
 }
 
 // Wrapper para llamadas HTTP incluyendo rol en cabecera y validación robusta contra respuestas HTML (502/503/404)
@@ -312,15 +321,16 @@ function configurarPermisosNavegacion(rol) {
   const navReporte = document.getElementById('nav-reporte-lideres');
   const navLideres = document.getElementById('nav-lideres');
   const navRetornos = document.getElementById('nav-retornos');
+  const navLideresEquipos = document.getElementById('nav-lideres-equipos');
   const navAuditoria = document.getElementById('nav-auditoria');
 
   // Restablecer visibilidad
-  [navGarita, navSistemas, navReporte, navLideres, navRetornos, navAuditoria].forEach(el => {
+  [navGarita, navSistemas, navReporte, navLideres, navRetornos, navLideresEquipos, navAuditoria].forEach(el => {
     if (el) el.classList.remove('hidden');
   });
 
   if (rol === 'garita') {
-    // El guardia solo ve Garita y Retornos
+    // El guardia ve Garita, Retornos y Laptops Líderes
     if (navSistemas) navSistemas.classList.add('hidden');
     if (navReporte) navReporte.classList.add('hidden');
     if (navLideres) navLideres.classList.add('hidden');
@@ -331,6 +341,7 @@ function configurarPermisosNavegacion(rol) {
     if (navSistemas) navSistemas.classList.add('hidden');
     if (navReporte) navReporte.classList.add('hidden');
     if (navRetornos) navRetornos.classList.add('hidden');
+    if (navLideresEquipos) navLideresEquipos.classList.add('hidden');
     if (navAuditoria) navAuditoria.classList.add('hidden');
   } else if (rol === 'sistemas') {
     // Sistemas ve absolutamente todo
@@ -352,13 +363,13 @@ function actualizarReloj() {
 }
 
 function cambiarModulo(moduloId) {
-  const modulos = ['garita', 'sistemas', 'reporte-lideres', 'lideres', 'retornos', 'auditoria'];
+  const modulos = ['garita', 'sistemas', 'reporte-lideres', 'lideres', 'retornos', 'lideres-equipos', 'auditoria'];
   modulos.forEach(m => {
     const el = document.getElementById(`modulo-${m}`);
     const nav = document.getElementById(`nav-${m}`);
     if (el) el.classList.add('hidden');
     if (nav) {
-      nav.classList.remove('bg-emerald-600', 'bg-blue-600', 'text-white', 'shadow-sm');
+      nav.classList.remove('bg-emerald-600', 'bg-blue-600', 'bg-purple-600', 'text-white', 'shadow-sm');
       nav.classList.add('text-slate-300', 'hover:text-white', 'hover:bg-slate-800');
     }
   });
@@ -367,7 +378,9 @@ function cambiarModulo(moduloId) {
   const navActivo = document.getElementById(`nav-${moduloId}`);
   if (activo) activo.classList.remove('hidden');
   if (navActivo) {
-    const activeColor = moduloId === 'garita' ? 'bg-emerald-600' : 'bg-blue-600';
+    let activeColor = 'bg-blue-600';
+    if (moduloId === 'garita' || moduloId === 'retornos') activeColor = 'bg-emerald-600';
+    if (moduloId === 'lideres-equipos') activeColor = 'bg-purple-600';
     navActivo.classList.add(activeColor, 'text-white', 'shadow-sm');
     navActivo.classList.remove('text-slate-300', 'hover:text-white', 'hover:bg-slate-800');
   }
@@ -390,6 +403,11 @@ function cambiarModulo(moduloId) {
     cargarRetornosHoy();
     const inputRet = document.getElementById('inputEscaneoRetorno');
     if (inputRet) inputRet.focus();
+  } else if (moduloId === 'lideres-equipos') {
+    cargarLideresEquipos();
+    cargarBitacoraMovimientosLideres();
+    const inputLid = document.getElementById('inputEscaneoLider');
+    if (inputLid) inputLid.focus();
   } else if (moduloId === 'auditoria') {
     cargarAuditoria();
   }
@@ -472,6 +490,12 @@ async function buscarEnGarita(e) {
     const json = await res.json();
 
     container.classList.remove('hidden');
+
+    // 1. Interceptar Pase Libre Autorizado de Líderes de Operaciones
+    if (json.ok && json.encontrado && json.es_lider && json.lider) {
+      renderizarPaseLibreLiderEnGarita(json.lider);
+      return;
+    }
 
     if (!json.ok || !json.encontrado || !Array.isArray(json.data) || json.data.length === 0 || !json.data[0]) {
       playErrorSound();
@@ -1464,14 +1488,58 @@ async function cargarListaDirectorioModal() {
     const json = await res.json();
     if (json.ok && json.data) {
       cont.innerHTML = json.data.map(l => `
-        <div class="flex items-center justify-between py-2 px-1 text-xs">
-          <span class="font-bold text-slate-800">${l.nombre}</span>
-          <span class="text-slate-400 font-semibold">${l.piso ? 'Piso ' + l.piso : 'Rotativo'}</span>
+        <div class="flex items-center justify-between py-2 px-2 text-xs border-b border-slate-100 hover:bg-slate-50 transition rounded-lg">
+          <div>
+            <div class="font-bold text-slate-800">${l.nombre_completo || l.nombre}</div>
+            <div class="text-[11px] text-slate-400 font-mono">Usuario: ${l.nombre} &bull; ${l.area_default || 'Cobranzas'}</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="font-mono font-black text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-[11px]">
+              ${l.codigo_maquina || 'Sin Laptop'}
+            </span>
+            <button 
+              type="button" 
+              onclick="editarLaptopLiderPrompt(${l.id}, '${l.nombre}', '${l.codigo_maquina || ''}')" 
+              class="px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded font-bold text-[10px] transition"
+              title="Editar número de serie de laptop"
+            >
+              Cambiar Serie
+            </button>
+          </div>
         </div>
       `).join('');
     }
   } catch (e) {
     cont.innerHTML = '<div class="p-3 text-rose-500">Error al cargar directorio.</div>';
+  }
+}
+
+async function editarLaptopLiderPrompt(id, nombre, serieActual = '') {
+  const nuevaSerie = prompt(`Actualizar laptop asignada para el líder "${nombre}":\n\nIngrese el nuevo número de serie de la laptop:`, serieActual || '');
+  if (nuevaSerie === null) return; // Cancelado por el usuario
+
+  const serieLimpia = nuevaSerie.trim().toUpperCase();
+  try {
+    const res = await fetchAuth(`/api/lideres-directorio/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        codigo_maquina: serieLimpia
+      })
+    });
+
+    const json = await res.json();
+    if (json.ok) {
+      showToast(`Laptop actualizada para ${nombre}: ${serieLimpia || 'Sin asignar'}`, 'success');
+      cargarListaDirectorioModal();
+      if (typeof cargarLideresEquipos === 'function') {
+        cargarLideresEquipos();
+      }
+    } else {
+      alert(json.error || 'Error al actualizar la laptop del líder.');
+    }
+  } catch (error) {
+    showToast('Error: ' + error.message, 'error');
   }
 }
 
@@ -2725,3 +2793,485 @@ function showToast(message, type = 'success') {
     toast.classList.add('translate-y-24', 'opacity-0');
   }, 3500);
 }
+
+// =============================================================
+// MODULO: CONTROL Y PASE LIBRE DE LAPTOPS DE LÍDERES
+// =============================================================
+
+function renderizarPaseLibreLiderEnGarita(lider) {
+  const container = document.getElementById('contenedorResultadoGarita');
+  if (!container || !lider) return;
+
+  playLeaderSound();
+
+  const esFuera = (lider.estado_ubicacion === 'FUERA');
+  const proximoMovimiento = esFuera ? 'INGRESO' : 'SALIDA';
+  const colorBorde = esFuera ? 'border-indigo-500' : 'border-purple-600';
+  const colorBg = esFuera ? 'bg-indigo-50' : 'bg-purple-50';
+  const btnColor = esFuera ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-purple-600 hover:bg-purple-500';
+  const accionTexto = esFuera ? 'REGISTRAR REINGRESO A PLANTA (ENTER)' : 'CONFIRMAR SALIDA LIBRE (ENTER)';
+  const accionIcono = esFuera ? 'log-in' : 'log-out';
+
+  container.innerHTML = `
+    <div class="${colorBg} border-4 ${colorBorde} rounded-3xl p-6 sm:p-8 shadow-2xl card-success-pulse">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-purple-200">
+        <div class="flex items-center gap-5">
+          <div class="w-20 h-20 rounded-2xl bg-purple-700 text-white flex items-center justify-center font-black text-3xl shadow-lg">
+            👑
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-3 py-1 bg-purple-700 text-white text-xs font-black uppercase rounded-full tracking-wider flex items-center gap-1">
+                <span>👑 PASE LIBRE AUTORIZADO - LÍDER DE OPERACIONES</span>
+              </span>
+              <span class="text-xs ${esFuera ? 'text-indigo-800' : 'text-purple-800'} font-bold">
+                Estado Actual: <strong>${esFuera ? '🔴 FUERA DE PLANTA' : '🟢 EN PLANTA (OFICINA)'}</strong>
+              </span>
+            </div>
+            <h2 class="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight mt-1">${lider.nombre_completo || lider.nombre}</h2>
+            <div class="flex flex-wrap items-center gap-3 text-sm text-slate-700 mt-1 font-semibold">
+              <span>Usuario/Rol: <strong class="text-purple-900 font-mono">${lider.nombre}</strong></span>
+              <span>&bull;</span>
+              <span>Área: <strong class="text-slate-900">${lider.area_default || 'Cobranzas'}</strong></span>
+              <span>&bull;</span>
+              <span>Paso: <strong class="text-emerald-700">Libre sin ticket</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white px-6 py-4 rounded-2xl border-2 border-purple-400 text-center shadow-md">
+          <div class="text-[11px] uppercase font-black text-purple-900 tracking-wider">Laptop Asignada al Líder</div>
+          <div class="text-3xl font-mono font-black text-purple-700 mt-1 tracking-widest">${lider.codigo_maquina}</div>
+          <div class="text-xs font-bold text-slate-600 mt-0.5">${lider.modelo || 'DELL Corporativo'}</div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white/70 p-4 sm:p-5 rounded-2xl border border-purple-300">
+        <div class="flex items-center gap-3 text-purple-950">
+          <i data-lucide="shield-check" class="w-8 h-8 text-purple-600 flex-shrink-0"></i>
+          <div>
+            <div class="font-black text-base">Equipo y Líder Verificados Correctamente</div>
+            <div class="text-xs text-purple-800 font-medium">Los líderes no requieren ticket de Sistemas. Presione el botón o pulse ENTER para registrar en la bitácora.</div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <button 
+            type="button" 
+            id="btnConfirmarMovimientoLiderGarita"
+            onclick="confirmarMovimientoLider(${lider.id}, '${lider.codigo_maquina}', '${proximoMovimiento}')"
+            class="touch-btn w-full sm:w-auto px-8 py-4 ${btnColor} text-white text-base font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 transition-all transform active:scale-95"
+            autofocus
+          >
+            <i data-lucide="${accionIcono}" class="w-6 h-6"></i>
+            <span>${accionTexto}</span>
+          </button>
+          <button onclick="limpiarGarita()" class="px-4 py-4 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-2xl text-xs font-black">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  lucide.createIcons();
+
+  setTimeout(() => {
+    const btn = document.getElementById('btnConfirmarMovimientoLiderGarita');
+    if (btn) btn.focus();
+  }, 100);
+}
+
+async function confirmarMovimientoLider(liderId, codigoMaquina, tipo = 'SALIDA') {
+  try {
+    const guardia = currentUser ? currentUser.nombre : 'Guardia Garita';
+    const res = await fetchAuth('/api/garita/lideres/movimiento', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lider_id: liderId,
+        codigo_maquina: codigoMaquina,
+        tipo_movimiento: tipo,
+        guardia,
+        observaciones: `Registro de ${tipo === 'SALIDA' ? 'salida libre' : 'reingreso'} en Garita`
+      })
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      playErrorSound();
+      alert(json.error || 'Error al registrar movimiento del líder.');
+      return;
+    }
+
+    playSuccessSound();
+    showToast(json.message, 'success');
+
+    limpiarGarita();
+    cerrarResultadoLider();
+
+    await cargarLideresEquipos();
+    await cargarBitacoraMovimientosLideres();
+  } catch (error) {
+    showToast('Error registrando movimiento: ' + error.message, 'error');
+  }
+}
+
+async function cargarLideresEquipos() {
+  try {
+    const res = await fetchAuth('/api/lideres-directorio');
+    const json = await res.json();
+
+    if (!json.ok || !json.data) return;
+
+    lideresEquiposCache = json.data;
+
+    const total = lideresEquiposCache.length;
+    const enPlanta = lideresEquiposCache.filter(l => l.estado_ubicacion !== 'FUERA').length;
+    const fuera = lideresEquiposCache.filter(l => l.estado_ubicacion === 'FUERA').length;
+
+    const elTotal = document.getElementById('statLideresTotal');
+    const elEnPlanta = document.getElementById('statLideresEnPlanta');
+    const elFuera = document.getElementById('statLideresFuera');
+
+    if (elTotal) elTotal.textContent = total;
+    if (elEnPlanta) elEnPlanta.textContent = enPlanta;
+    if (elFuera) elFuera.textContent = fuera;
+
+    renderizarTablaLideresEquipos(lideresEquiposCache);
+  } catch (error) {
+    console.error('Error al cargar nómina de líderes y equipos:', error);
+  }
+}
+
+function filtrarTablaLideresEquipos() {
+  const q = (document.getElementById('filtroLideresEquipos')?.value || '').toLowerCase().trim();
+  const estadoFiltro = document.getElementById('filtroUbicacionLider')?.value || 'TODOS';
+
+  let filtrados = lideresEquiposCache.filter(l => {
+    const matchQ = !q || 
+      (l.nombre && l.nombre.toLowerCase().includes(q)) || 
+      (l.nombre_completo && l.nombre_completo.toLowerCase().includes(q)) || 
+      (l.codigo_maquina && l.codigo_maquina.toLowerCase().includes(q)) ||
+      (l.modelo && l.modelo.toLowerCase().includes(q));
+
+    let matchEstado = true;
+    if (estadoFiltro === 'EN_PLANTA') {
+      matchEstado = (l.estado_ubicacion !== 'FUERA');
+    } else if (estadoFiltro === 'FUERA') {
+      matchEstado = (l.estado_ubicacion === 'FUERA');
+    }
+
+    return matchQ && matchEstado;
+  });
+
+  renderizarTablaLideresEquipos(filtrados);
+}
+
+function renderizarTablaLideresEquipos(lideres) {
+  const tbody = document.getElementById('tablaLideresEquipos');
+  if (!tbody) return;
+
+  if (!lideres || lideres.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="text-center py-8 text-slate-400 font-bold">
+          No se encontraron líderes con los filtros aplicados.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = lideres.map((l, index) => {
+    const esFuera = (l.estado_ubicacion === 'FUERA');
+    const badgeUbicacion = esFuera
+      ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-purple-100 text-purple-800 border border-purple-300">
+           <span class="w-2 h-2 rounded-full bg-purple-600 animate-pulse"></span> FUERA CON LAPTOP
+         </span>`
+      : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+           <span class="w-2 h-2 rounded-full bg-emerald-600"></span> EN PLANTA (OFICINA)
+         </span>`;
+
+    const accionBtn = esFuera
+      ? `<button 
+           onclick="confirmarMovimientoLider(${l.id}, '${l.codigo_maquina}', 'INGRESO')"
+           class="touch-btn px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow flex items-center gap-1 mx-auto transition"
+           title="Registrar reingreso del líder"
+         >
+           <i data-lucide="log-in" class="w-3.5 h-3.5"></i>
+           <span>Reingreso</span>
+         </button>`
+      : `<button 
+           onclick="confirmarMovimientoLider(${l.id}, '${l.codigo_maquina}', 'SALIDA')"
+           class="touch-btn px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-black shadow flex items-center gap-1 mx-auto transition"
+           title="Registrar salida autorizada de la laptop"
+         >
+           <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+           <span>Salida Libre</span>
+         </button>`;
+
+    const ultimoMov = l.ultimo_movimiento_en
+      ? `<div class="text-xs text-slate-700 font-semibold">${new Date(l.ultimo_movimiento_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</div>
+         <div class="text-[10px] text-slate-400">${l.ultimo_movimiento_tipo === 'SALIDA' ? 'Salida' : 'Entrada'} por ${l.ultimo_guardia || 'Garita'}</div>`
+      : `<span class="text-xs text-slate-400 italic">Sin registros hoy</span>`;
+
+    return `
+      <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+        <td class="py-3 px-4 font-mono text-xs text-slate-400">${index + 1}</td>
+        <td class="py-3 px-4">
+          <div class="font-black text-slate-900">${l.nombre_completo || l.nombre}</div>
+          <div class="text-[11px] text-slate-500 font-medium">${l.area_default || 'Cobranzas'}</div>
+        </td>
+        <td class="py-3 px-4">
+          <span class="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-slate-100 text-slate-800 border border-slate-200">
+            ${l.nombre}
+          </span>
+        </td>
+        <td class="py-3 px-4 font-mono font-black text-blue-700 text-sm tracking-wider">
+          ${l.codigo_maquina ? `<span class="bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg">${l.codigo_maquina}</span>` : '<span class="text-rose-400 font-normal">Sin asignar</span>'}
+        </td>
+        <td class="py-3 px-4 text-xs font-bold text-slate-600">
+          ${l.modelo || 'Laptop'}
+        </td>
+        <td class="py-3 px-4 text-center">
+          ${badgeUbicacion}
+        </td>
+        <td class="py-3 px-4">
+          ${ultimoMov}
+        </td>
+        <td class="py-3 px-4 text-center">
+          ${accionBtn}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  lucide.createIcons();
+}
+
+async function cargarBitacoraMovimientosLideres() {
+  const tbody = document.getElementById('tablaBitacoraLideres');
+  if (!tbody) return;
+
+  try {
+    const res = await fetchAuth('/api/garita/lideres/movimientos');
+    const json = await res.json();
+
+    if (!json.ok || !json.data) return;
+
+    lideresMovimientosCache = json.data;
+
+    if (lideresMovimientosCache.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center py-6 text-slate-400 font-bold">
+            No se han registrado movimientos de laptops de líderes en las últimas 24 horas.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = lideresMovimientosCache.map(m => {
+      const esSalida = (m.tipo_movimiento === 'SALIDA');
+      const badgeTipo = esSalida
+        ? `<span class="px-2.5 py-1 rounded-full font-black text-[11px] bg-purple-100 text-purple-800 border border-purple-200">
+             SALIDA LIBRE
+           </span>`
+        : `<span class="px-2.5 py-1 rounded-full font-black text-[11px] bg-emerald-100 text-emerald-800 border border-emerald-200">
+             REINGRESO A PLANTA
+           </span>`;
+
+      const fechaHoraFormato = m.fecha_hora 
+        ? new Date(m.fecha_hora).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }) + ' ' + new Date(m.fecha_hora).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        : '--';
+
+      return `
+        <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+          <td class="py-2.5 px-4 font-mono font-bold text-slate-700">
+            ${fechaHoraFormato}
+          </td>
+          <td class="py-2.5 px-4 font-black text-slate-900">
+            ${m.nombre_completo || m.lider_nombre}
+          </td>
+          <td class="py-2.5 px-4 font-mono font-black text-blue-700">
+            ${m.codigo_maquina}
+          </td>
+          <td class="py-2.5 px-4 text-center">
+            ${badgeTipo}
+          </td>
+          <td class="py-2.5 px-4 font-semibold text-slate-700">
+            ${m.guardia || 'Garita'}
+          </td>
+          <td class="py-2.5 px-4 text-slate-500 italic">
+            ${m.observaciones || 'Verificado conforme'}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    lucide.createIcons();
+  } catch (error) {
+    console.error('Error al cargar bitácora de líderes:', error);
+  }
+}
+
+async function verificarLiderPorEscaneo(e) {
+  if (e) e.preventDefault();
+  const input = document.getElementById('inputEscaneoLider');
+  const term = (input ? input.value : '').trim().toUpperCase();
+  const container = document.getElementById('contenedorResultadoLider');
+
+  if (!term || !container) return;
+
+  container.classList.remove('hidden');
+
+  let lider = lideresEquiposCache.find(l => 
+    (l.codigo_maquina && l.codigo_maquina.toUpperCase() === term) ||
+    (l.nombre && l.nombre.toUpperCase() === term) ||
+    (l.nombre_completo && l.nombre_completo.toUpperCase().includes(term))
+  );
+
+  if (!lider) {
+    try {
+      const res = await fetchAuth(`/api/garita/buscar?q=${encodeURIComponent(term)}`);
+      const json = await res.json();
+      if (json.ok && json.encontrado && json.es_lider && json.lider) {
+        lider = json.lider;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  if (lider) {
+    playLeaderSound();
+    const esFuera = (lider.estado_ubicacion === 'FUERA');
+    const proximoMovimiento = esFuera ? 'INGRESO' : 'SALIDA';
+    const btnTexto = esFuera ? 'REGISTRAR INGRESO A PLANTA (ENTER)' : 'CONFIRMAR SALIDA DE PLANTA (ENTER)';
+    const btnColor = esFuera ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-purple-600 hover:bg-purple-500';
+    const badgeColor = esFuera ? 'bg-indigo-700' : 'bg-purple-700';
+
+    container.innerHTML = `
+      <div class="bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 border-4 border-purple-500 rounded-3xl p-6 sm:p-8 shadow-2xl card-success-pulse">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-purple-200">
+          <div class="flex items-center gap-5">
+            <div class="w-20 h-20 rounded-2xl bg-purple-700 text-white flex items-center justify-center font-black text-3xl shadow-lg">
+              👑
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="px-3 py-1 ${badgeColor} text-white text-xs font-black uppercase rounded-full tracking-wider">
+                  👑 PASE LIBRE AUTORIZADO - LÍDER DE OPERACIONES
+                </span>
+                <span class="text-xs font-bold text-purple-900">
+                  Estado: <strong>${esFuera ? '🔴 FUERA DE PLANTA' : '🟢 EN PLANTA (OFICINA)'}</strong>
+                </span>
+              </div>
+              <h2 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mt-1">
+                ${lider.nombre_completo || lider.nombre}
+              </h2>
+              <div class="flex flex-wrap items-center gap-3 text-sm text-slate-700 mt-1 font-semibold">
+                <span>Rol: <strong class="text-purple-900 font-mono">${lider.nombre}</strong></span>
+                <span>&bull;</span>
+                <span>Área: <strong class="text-slate-900">${lider.area_default || 'Cobranzas'}</strong></span>
+                <span>&bull;</span>
+                <span>Paso: <strong class="text-emerald-700">Libre sin ticket</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white px-6 py-4 rounded-2xl border-2 border-purple-400 text-center shadow-md">
+            <div class="text-[11px] uppercase font-black text-purple-900 tracking-wider">Laptop Oficial Asignada</div>
+            <div class="text-3xl font-mono font-black text-purple-700 mt-1 tracking-widest">${lider.codigo_maquina}</div>
+            <div class="text-xs font-bold text-slate-600 mt-0.5">${lider.modelo || 'DELL Corporativo'}</div>
+          </div>
+        </div>
+
+        <div class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white/70 p-4 sm:p-5 rounded-2xl border border-purple-300">
+          <div class="flex items-center gap-3 text-purple-950">
+            <i data-lucide="shield-check" class="w-8 h-8 text-purple-600 flex-shrink-0"></i>
+            <div>
+              <div class="font-black text-base">Equipo corresponde al Líder</div>
+              <div class="text-xs text-purple-800 font-medium">Presione el botón o ENTER para registrar el movimiento en la bitácora de Garita.</div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <button 
+              type="button" 
+              id="btnConfirmarMovLiderEscaneo"
+              onclick="confirmarMovimientoLider(${lider.id}, '${lider.codigo_maquina}', '${proximoMovimiento}')"
+              class="touch-btn w-full sm:w-auto px-8 py-4 ${btnColor} text-white text-base font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 transition-all transform active:scale-95"
+              autofocus
+            >
+              <i data-lucide="${esFuera ? 'log-in' : 'log-out'}" class="w-6 h-6"></i>
+              <span>${btnTexto}</span>
+            </button>
+            <button onclick="cerrarResultadoLider()" class="px-4 py-4 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-2xl text-xs font-black">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    lucide.createIcons();
+    if (input) input.value = '';
+
+    setTimeout(() => {
+      const btn = document.getElementById('btnConfirmarMovLiderEscaneo');
+      if (btn) btn.focus();
+    }, 100);
+
+  } else {
+    playErrorSound();
+    container.innerHTML = `
+      <div class="bg-rose-50 border-4 border-rose-600 text-rose-950 p-6 sm:p-8 rounded-3xl shadow-2xl shake-error">
+        <div class="flex items-start gap-4">
+          <div class="p-4 bg-rose-200 text-rose-900 rounded-2xl flex-shrink-0">
+            <i data-lucide="shield-alert" class="w-10 h-10"></i>
+          </div>
+          <div class="flex-1">
+            <span class="px-3 py-1 bg-rose-600 text-white text-xs font-black uppercase rounded-full tracking-wider">
+              🛑 ALERTA DE SEGURIDAD - NO CORRESPONDE A NINGÚN LÍDER
+            </span>
+            <h2 class="text-2xl sm:text-3xl font-black text-rose-900 mt-2">
+              LA SERIE [${term}] NO ESTÁ ASIGNADA A NINGÚN LÍDER
+            </h2>
+            <div class="mt-2 text-base font-bold text-rose-800">
+              "Oiga, esta no es su máquina, no le deben permitir salir"
+            </div>
+            <div class="mt-3 p-4 bg-white/90 border-2 border-rose-300 rounded-2xl text-xs font-bold text-rose-950 space-y-1">
+              <div>⚠️ <strong>Acción requerida del Guardia de Garita:</strong></div>
+              <div>1. No permita la salida del equipo físico con pase libre.</div>
+              <div>2. Verifique si la persona es un asesor que requiere ticket regular aprobado por Sistemas en la pantalla principal de Garita.</div>
+              <div>3. Si es un líder, verifique que lleve su máquina asignada consultando la tabla inferior.</div>
+            </div>
+          </div>
+          <button onclick="cerrarResultadoLider()" class="px-4 py-2 bg-rose-200 hover:bg-rose-300 text-rose-950 rounded-xl text-xs font-black flex-shrink-0">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    `;
+
+    lucide.createIcons();
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+  }
+}
+
+function cerrarResultadoLider() {
+  const container = document.getElementById('contenedorResultadoLider');
+  if (container) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+  }
+  const input = document.getElementById('inputEscaneoLider');
+  if (input) input.focus();
+}
+

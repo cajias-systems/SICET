@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const { createClient } = require('@libsql/client');
 const path = require('path');
 
@@ -59,7 +59,14 @@ async function initDb() {
       CREATE TABLE IF NOT EXISTS lideres_directorio (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre TEXT NOT NULL UNIQUE,
+        nombre_completo TEXT,
+        codigo_maquina TEXT,
+        modelo TEXT DEFAULT 'Laptop',
+        estado_ubicacion TEXT DEFAULT 'EN_PLANTA',
         area_default TEXT DEFAULT 'Cobranzas',
+        ultimo_movimiento_en TEXT,
+        ultimo_movimiento_tipo TEXT,
+        ultimo_guardia TEXT,
         activo INTEGER DEFAULT 1,
         created_at TEXT DEFAULT (datetime('now', 'localtime'))
       );
@@ -123,6 +130,20 @@ async function initDb() {
         usuario TEXT DEFAULT 'Sistema',
         detalles TEXT,
         timestamp TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
+
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS lideres_movimientos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        lider_id INTEGER,
+        lider_nombre TEXT NOT NULL,
+        nombre_completo TEXT,
+        codigo_maquina TEXT NOT NULL,
+        tipo_movimiento TEXT NOT NULL,
+        guardia TEXT DEFAULT 'Guardia Garita',
+        fecha_hora TEXT DEFAULT (datetime('now', 'localtime')),
+        observaciones TEXT
       );
     `);
 
