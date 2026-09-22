@@ -1101,7 +1101,7 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
-              <button onclick="abrirModalFormularioPersonal(null)" id="btnAgregarNuevoLiderEnEquipos" class="touch-btn px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 transition">
+              <button onclick="abrirModalFormularioPersonal(null)" id="btnAgregarNuevoLiderEnEquipos" class="touch-btn px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs rounded-xl shadow-md items-center gap-1.5 transition hidden">
                 <i data-lucide="user-plus" class="w-4 h-4"></i>
                 <span>+ Agregar Nuevo Líder</span>
               </button>
@@ -1151,7 +1151,7 @@
                   <th class="py-3 px-4 text-center">Ubicación</th>
                   <th class="py-3 px-4">Último Movimiento</th>
                   <th class="py-3 px-4 text-center">Tránsito</th>
-                  <th class="py-3 px-4 text-center">Gestión TI</th>
+                  <th id="thGestionTILideres" class="py-3 px-4 text-center hidden">Gestión TI</th>
                 </tr>
               </thead>
               <tbody id="tablaLideresEquipos" class="divide-y divide-slate-100 font-medium">
@@ -1274,8 +1274,11 @@
           </div>
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Campaña / Área</label>
-          <input type="text" id="modalHabArea" placeholder="Ej: Campañas" class="w-full p-2.5 text-sm font-semibold border rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+          <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Campaña / Área *</label>
+          <select id="modalHabArea" required class="w-full p-2.5 text-sm font-semibold border rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none bg-white">
+            <option value="Cobranzas" selected>Cobranzas</option>
+            <option value="Auditoría">Auditoría</option>
+          </select>
         </div>
         <div class="flex justify-end gap-2 pt-2">
           <button type="button" onclick="cerrarModalAsesorHabitual()" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-xl">Cancelar</button>

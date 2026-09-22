@@ -335,22 +335,31 @@ function configurarPermisosNavegacion(rol) {
     if (el) el.classList.remove('hidden');
   });
 
+  const btnAgregarLider = document.getElementById('btnAgregarNuevoLiderEnEquipos');
+  const thGestionTI = document.getElementById('thGestionTILideres');
+
   if (rol === 'garita') {
-    // El guardia ve Garita, Retornos y Laptops Líderes
+    // El guardia ve Garita, Retornos y Laptops Líderes (solo lectura y despacho)
     if (navSistemas) navSistemas.classList.add('hidden');
     if (navReporte) navReporte.classList.add('hidden');
     if (navLideres) navLideres.classList.add('hidden');
     if (navAuditoria) navAuditoria.classList.add('hidden');
+    if (btnAgregarLider) btnAgregarLider.classList.add('hidden');
+    if (thGestionTI) thGestionTI.classList.add('hidden');
   } else if (rol === 'lider') {
-    // El líder solo ve el portal de registro de líderes
+    // El líder solo ve el portal de registro de su propio equipo
     if (navGarita) navGarita.classList.add('hidden');
     if (navSistemas) navSistemas.classList.add('hidden');
     if (navReporte) navReporte.classList.add('hidden');
     if (navRetornos) navRetornos.classList.add('hidden');
     if (navLideresEquipos) navLideresEquipos.classList.add('hidden');
     if (navAuditoria) navAuditoria.classList.add('hidden');
+    if (btnAgregarLider) btnAgregarLider.classList.add('hidden');
+    if (thGestionTI) thGestionTI.classList.add('hidden');
   } else if (rol === 'sistemas') {
-    // Sistemas ve absolutamente todo
+    // Sistemas ve absolutamente todo y tiene control total de gestión
+    if (btnAgregarLider) btnAgregarLider.classList.remove('hidden');
+    if (thGestionTI) thGestionTI.classList.remove('hidden');
   }
 }
 
@@ -428,10 +437,9 @@ async function cargarAreas() {
     if (json.ok) {
       const selectLider = document.getElementById('liderSelectArea');
       if (selectLider) {
-        selectLider.innerHTML = '<option value="">-- Seleccione Área / Campaña --</option>';
-        json.data.forEach(a => {
-          selectLider.innerHTML += `<option value="${a.nombre}">${a.nombre}</option>`;
-        });
+        // Los líderes de operaciones solo gestionan sus colaboradores (Cobranzas y Auditoría)
+        const areasLider = ['Cobranzas', 'Auditoría'];
+        selectLider.innerHTML = areasLider.map(a => `<option value="${a}">${a}</option>`).join('');
       }
     }
   } catch (e) {}
@@ -3267,10 +3275,24 @@ function renderizarTablaLideresEquipos(lideres) {
   const tbody = document.getElementById('tablaLideresEquipos');
   if (!tbody) return;
 
+  const esSistemas = (currentUser && currentUser.rol === 'sistemas');
+  const thGestionTI = document.getElementById('thGestionTILideres');
+  const btnAgregarLider = document.getElementById('btnAgregarNuevoLiderEnEquipos');
+
+  if (esSistemas) {
+    if (thGestionTI) thGestionTI.classList.remove('hidden');
+    if (btnAgregarLider) btnAgregarLider.classList.remove('hidden');
+  } else {
+    if (thGestionTI) thGestionTI.classList.add('hidden');
+    if (btnAgregarLider) btnAgregarLider.classList.add('hidden');
+  }
+
+  const colSpanCount = esSistemas ? 10 : 9;
+
   if (!lideres || lideres.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="10" class="text-center py-8 text-slate-400 font-bold">
+        <td colspan="${colSpanCount}" class="text-center py-8 text-slate-400 font-bold">
           No se encontraron líderes o personal con los filtros aplicados.
         </td>
       </tr>
@@ -3311,6 +3333,29 @@ function renderizarTablaLideresEquipos(lideres) {
          <div class="text-[10px] text-slate-400">${l.ultimo_movimiento_tipo === 'SALIDA' ? 'Salida' : 'Entrada'} por ${l.ultimo_guardia || 'Garita'}</div>`
       : `<span class="text-xs text-slate-400 italic">Sin registros hoy</span>`;
 
+    const adminCol = esSistemas ? `
+      <td class="py-3 px-4 text-center">
+        <div class="flex items-center justify-center gap-1.5">
+          <button 
+            onclick="abrirModalFormularioPersonal(${l.id})"
+            class="touch-btn px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white rounded-xl text-xs font-black border border-blue-200 shadow-xs flex items-center gap-1 transition"
+            title="Editar serie laptop, cédula o nombres"
+          >
+            <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+            <span>Editar</span>
+          </button>
+          <button 
+            onclick="eliminarPersonalDirectorio(${l.id}, '${(l.nombre_completo || l.nombre).replace(/'/g, "\\'")}')"
+            class="touch-btn px-2 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white rounded-xl text-xs font-bold border border-rose-200 shadow-xs flex items-center gap-1 transition"
+            title="Eliminar líder"
+          >
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            <span>Eliminar</span>
+          </button>
+        </div>
+      </td>
+    ` : '';
+
     return `
       <tr class="hover:bg-slate-50 transition border-b border-slate-100">
         <td class="py-3 px-4 font-mono text-xs text-slate-400">${index + 1}</td>
@@ -3340,26 +3385,7 @@ function renderizarTablaLideresEquipos(lideres) {
         <td class="py-3 px-4 text-center">
           ${accionBtn}
         </td>
-        <td class="py-3 px-4 text-center">
-          <div class="flex items-center justify-center gap-1.5">
-            <button 
-              onclick="abrirModalFormularioPersonal(${l.id})"
-              class="touch-btn px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white rounded-xl text-xs font-black border border-blue-200 shadow-xs flex items-center gap-1 transition"
-              title="Editar serie laptop, cédula o nombres"
-            >
-              <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
-              <span>Editar</span>
-            </button>
-            <button 
-              onclick="eliminarPersonalDirectorio(${l.id}, '${(l.nombre_completo || l.nombre).replace(/'/g, "\\'")}')"
-              class="touch-btn px-2 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white rounded-xl text-xs font-bold border border-rose-200 shadow-xs flex items-center gap-1 transition"
-              title="Eliminar líder"
-            >
-              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-              <span>Eliminar</span>
-            </button>
-          </div>
-        </td>
+        ${adminCol}
       </tr>
     `;
   }).join('');
