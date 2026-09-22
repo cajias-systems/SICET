@@ -113,7 +113,13 @@ async function cargarComboLideresLogin() {
     if (json.ok && json.data) {
       const select = document.getElementById('loginSelectLider');
       if (select) {
-        select.innerHTML = json.data.map(l => `<option value="${l.nombre}">${l.nombre}</option>`).join('');
+        // Filtrar estrictamente solo líderes reales (excluir sistemas, seguridad o garita)
+        const soloLideres = json.data.filter(l => {
+          const n = (l.nombre || '').toLowerCase();
+          const nc = (l.nombre_completo || '').toLowerCase();
+          return !n.includes('sistemas') && !nc.includes('sistemas') && !n.includes('seguridad') && !n.includes('garita');
+        });
+        select.innerHTML = soloLideres.map(l => `<option value="${l.nombre}">${l.nombre}</option>`).join('');
       }
     }
   } catch (e) {
@@ -1602,8 +1608,21 @@ function abrirModalFormularioPersonal(id = null) {
   const btnGuardar = document.getElementById('btnGuardarPersonal');
 
   if (id) {
-    const l = personalDirectorioModalCache.find(item => item.id === id);
-    if (!l) return;
+    let l = (Array.isArray(personalDirectorioModalCache) && personalDirectorioModalCache.find(item => item.id === id))
+         || (Array.isArray(lideresEquiposCache) && lideresEquiposCache.find(item => item.id === id));
+    
+    if (!l) {
+      fetchAuth(`/api/lideres-directorio?todos=1`)
+        .then(r => r.json())
+        .then(res => {
+          if (res.ok && res.data) {
+            personalDirectorioModalCache = res.data;
+            abrirModalFormularioPersonal(id);
+          }
+        })
+        .catch(() => alert('No se encontraron datos para el líder seleccionado.'));
+      return;
+    }
 
     if (inputId) inputId.value = l.id;
     if (inputNomComp) inputNomComp.value = l.nombre_completo || l.nombre;
@@ -1616,8 +1635,8 @@ function abrirModalFormularioPersonal(id = null) {
     if (selectPase) selectPase.value = (l.tiene_pase_libre !== 0) ? '1' : '0';
     if (selectAct) selectAct.value = (l.activo !== 0) ? '1' : '0';
 
-    if (titulo) titulo.textContent = `Editar Funcionario: ${l.nombre}`;
-    if (btnGuardar) btnGuardar.textContent = 'Guardar Cambios';
+    if (titulo) titulo.innerHTML = `<span class="text-blue-600">✏️ Editar Líder:</span> <span class="text-slate-900 font-bold">${l.nombre_completo || l.nombre}</span>`;
+    if (btnGuardar) btnGuardar.innerHTML = `<span>💾 GUARDAR CAMBIOS</span>`;
   } else {
     if (inputId) inputId.value = '';
     if (inputNomComp) inputNomComp.value = '';
@@ -1630,8 +1649,8 @@ function abrirModalFormularioPersonal(id = null) {
     if (selectPase) selectPase.value = '1';
     if (selectAct) selectAct.value = '1';
 
-    if (titulo) titulo.textContent = 'Agregar Nuevo Personal o Líder';
-    if (btnGuardar) btnGuardar.textContent = 'Guardar Funcionario';
+    if (titulo) titulo.innerHTML = `<span class="text-purple-600">➕ Agregar Nuevo Líder de Operaciones</span>`;
+    if (btnGuardar) btnGuardar.innerHTML = `<span>➕ REGISTRAR LÍDER</span>`;
   }
 
   modal.classList.remove('hidden');
@@ -3251,7 +3270,7 @@ function renderizarTablaLideresEquipos(lideres) {
   if (!lideres || lideres.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="9" class="text-center py-8 text-slate-400 font-bold">
+        <td colspan="10" class="text-center py-8 text-slate-400 font-bold">
           No se encontraron líderes o personal con los filtros aplicados.
         </td>
       </tr>
@@ -3320,6 +3339,26 @@ function renderizarTablaLideresEquipos(lideres) {
         </td>
         <td class="py-3 px-4 text-center">
           ${accionBtn}
+        </td>
+        <td class="py-3 px-4 text-center">
+          <div class="flex items-center justify-center gap-1.5">
+            <button 
+              onclick="abrirModalFormularioPersonal(${l.id})"
+              class="touch-btn px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white rounded-xl text-xs font-black border border-blue-200 shadow-xs flex items-center gap-1 transition"
+              title="Editar serie laptop, cédula o nombres"
+            >
+              <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+              <span>Editar</span>
+            </button>
+            <button 
+              onclick="eliminarPersonalDirectorio(${l.id}, '${(l.nombre_completo || l.nombre).replace(/'/g, "\\'")}')"
+              class="touch-btn px-2 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white rounded-xl text-xs font-bold border border-rose-200 shadow-xs flex items-center gap-1 transition"
+              title="Eliminar líder"
+            >
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              <span>Eliminar</span>
+            </button>
+          </div>
         </td>
       </tr>
     `;

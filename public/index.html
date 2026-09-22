@@ -1101,6 +1101,10 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
+              <button onclick="abrirModalFormularioPersonal(null)" id="btnAgregarNuevoLiderEnEquipos" class="touch-btn px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5 transition">
+                <i data-lucide="user-plus" class="w-4 h-4"></i>
+                <span>+ Agregar Nuevo Líder</span>
+              </button>
               <div class="relative">
                 <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
                 <input 
@@ -1108,7 +1112,7 @@
                   id="filtroLideresEquipos" 
                   placeholder="Buscar por líder, cédula o serie..." 
                   oninput="filtrarTablaLideresEquipos()" 
-                  class="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none w-52"
+                  class="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none w-48"
                 >
               </div>
               <select id="filtroDeptoLideresEquipos" onchange="filtrarTablaLideresEquipos()" class="px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-xl focus:outline-none bg-slate-50">
@@ -1146,7 +1150,8 @@
                   <th class="py-3 px-4">Modelo</th>
                   <th class="py-3 px-4 text-center">Ubicación</th>
                   <th class="py-3 px-4">Último Movimiento</th>
-                  <th class="py-3 px-4 text-center">Acción</th>
+                  <th class="py-3 px-4 text-center">Tránsito</th>
+                  <th class="py-3 px-4 text-center">Gestión TI</th>
                 </tr>
               </thead>
               <tbody id="tablaLideresEquipos" class="divide-y divide-slate-100 font-medium">

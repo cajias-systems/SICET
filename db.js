@@ -195,17 +195,6 @@ async function initDb() {
       await client.execute({ sql: 'INSERT OR IGNORE INTO areas (nombre) VALUES (?)', args: [a] });
     }
 
-    // Asegurar registro inicial para Sistemas en el directorio de personal
-    try {
-      await client.execute({
-        sql: `INSERT OR IGNORE INTO lideres_directorio 
-              (nombre, nombre_completo, codigo_maquina, modelo, area_default, cargo, tiene_pase_libre, estado_ubicacion, activo) 
-              VALUES (?, ?, ?, ?, ?, ?, 1, 'EN_PLANTA', 1)`,
-        args: ['Sistemas', 'DAVID SISTEMAS / TI', 'SIS-01-CORP', 'DELL Latitude 5420', 'Sistemas / TI', 'Jefe de Sistemas / TI']
-      });
-    } catch (eSys) {
-      // Ya existe
-    }
 
     // Sembrar usuarios
     await client.execute({
