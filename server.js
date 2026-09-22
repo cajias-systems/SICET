@@ -272,62 +272,207 @@ function requireRole(allowedRoles) {
 // RUTAS DEL DIRECTORIO OFICIAL DE LÍDERES
 // ==========================================
 
-// Obtener nómina de los 27 líderes oficiales
+// Obtener nómina de personal/líderes oficiales (Directorio)
 app.get('/api/lideres-directorio', async (req, res) => {
   try {
-    const lideres = await db.prepare('SELECT * FROM lideres_directorio WHERE activo = 1 ORDER BY nombre ASC').all();
+    const { todos, area } = req.query;
+    let query = 'SELECT * FROM lideres_directorio WHERE 1=1';
+    const params = [];
+    if (!todos) {
+      query += ' AND activo = 1';
+    }
+    if (area && area !== 'TODOS') {
+      query += ' AND area_default = ?';
+      params.push(area);
+    }
+    query += ' ORDER BY cargo ASC, nombre_completo ASC, nombre ASC';
+    const lideres = await db.prepare(query).all(...params);
     res.json({ ok: true, data: lideres });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
 });
 
-// Agregar nuevo líder al directorio (Sistemas)
+// Agregar nuevo líder o personal al directorio (Sistemas)
 app.post('/api/lideres-directorio', requireRole(['sistemas']), async (req, res) => {
   try {
-    const { nombre, area_default = 'Operaciones' } = req.body;
-    if (!nombre || !nombre.trim()) {
-      return res.status(400).json({ ok: false, error: 'El nombre del líder es requerido.' });
+    const { 
+      nombre, 
+      nombre_completo, 
+      cedula = '', 
+      codigo_maquina = '', 
+      modelo = 'Laptop', 
+      area_default = 'Cobranzas',
+      cargo = 'Líder de Operaciones',
+      tiene_pase_libre = 1
+    } = req.body;
+
+    const nombreFinal = (nombre || nombre_completo || '').trim();
+    if (!nombreFinal) {
+      return res.status(400).json({ ok: false, error: 'El nombre o usuario es requerido.' });
     }
 
-    const stmt = db.prepare('INSERT INTO lideres_directorio (nombre, area_default) VALUES (?, ?)');
-    const r = await stmt.run(nombre.trim(), area_default.trim());
-    await registrarAuditoria(null, 'LIDER_AGREGADO', 'Sistemas', `Nuevo líder agregado al directorio: ${nombre.trim()}`);
+    const codLimpio = codigo_maquina ? codigo_maquina.trim().toUpperCase() : '';
+    const cedLimpia = cedula ? cedula.trim() : '';
 
-    res.json({ ok: true, id: r.lastInsertRowid, message: 'Líder agregado correctamente.' });
+    // Validar si el código de máquina ya está asignado a otro miembro
+    if (codLimpio) {
+      const duplicadoCod = await db.prepare('SELECT id, nombre, nombre_completo FROM lideres_directorio WHERE UPPER(codigo_maquina) = ?').get(codLimpio);
+      if (duplicadoCod) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: `El código de máquina [${codLimpio}] ya está asignado a ${duplicadoCod.nombre_completo || duplicadoCod.nombre}.` 
+        });
+      }
+    }
+
+    // Validar cédula si se proporcionó
+    if (cedLimpia) {
+      const duplicadoCed = await db.prepare('SELECT id, nombre, nombre_completo FROM lideres_directorio WHERE cedula = ?').get(cedLimpia);
+      if (duplicadoCed) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: `La cédula [${cedLimpia}] ya está registrada para ${duplicadoCed.nombre_completo || duplicadoCed.nombre}.` 
+        });
+      }
+    }
+
+    const stmt = db.prepare(`
+      INSERT INTO lideres_directorio 
+      (nombre, nombre_completo, cedula, codigo_maquina, modelo, area_default, cargo, tiene_pase_libre, estado_ubicacion, activo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'EN_PLANTA', 1)
+    `);
+
+    const r = await stmt.run(
+      nombreFinal,
+      (nombre_completo || nombreFinal).trim(),
+      cedLimpia,
+      codLimpio,
+      (modelo || 'Laptop').trim(),
+      (area_default || 'Cobranzas').trim(),
+      (cargo || 'Líder de Operaciones').trim(),
+      tiene_pase_libre !== undefined ? Number(tiene_pase_libre) : 1
+    );
+
+    await registrarAuditoria(
+      null, 
+      'PERSONAL_AGREGADO', 
+      'Sistemas', 
+      `Nuevo personal registrado: ${nombre_completo || nombreFinal} - Cargo: ${cargo} - Laptop: ${codLimpio || 'Sin asignar'}`
+    );
+
+    res.json({ ok: true, id: r.lastInsertRowid, message: 'Personal agregado correctamente al directorio.' });
   } catch (error) {
-    res.status(400).json({ ok: false, error: 'El líder ya existe en el directorio o hubo un error.' });
+    res.status(400).json({ ok: false, error: error.message || 'Error al agregar personal al directorio.' });
   }
 });
 
-// Actualizar información y laptop asignada a un líder (Sistemas)
+// Actualizar información completa de un líder o funcionario (Sistemas)
 app.put('/api/lideres-directorio/:id', requireRole(['sistemas']), async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, nombre_completo, codigo_maquina, modelo = 'Laptop', area_default = 'Cobranzas', activo = 1 } = req.body;
+    const { 
+      nombre, 
+      nombre_completo, 
+      cedula, 
+      codigo_maquina, 
+      modelo, 
+      area_default, 
+      cargo, 
+      tiene_pase_libre, 
+      activo 
+    } = req.body;
+
+    const actual = await db.prepare('SELECT * FROM lideres_directorio WHERE id = ?').get(id);
+    if (!actual) {
+      return res.status(404).json({ ok: false, error: 'Registro no encontrado en el directorio.' });
+    }
+
+    const codLimpio = codigo_maquina !== undefined ? codigo_maquina.trim().toUpperCase() : actual.codigo_maquina;
+    const cedLimpia = cedula !== undefined ? cedula.trim() : actual.cedula;
+
+    // Si cambia de serie, verificar que no colisione con otro
+    if (codLimpio && codLimpio !== actual.codigo_maquina) {
+      const duplicadoCod = await db.prepare('SELECT id, nombre, nombre_completo FROM lideres_directorio WHERE UPPER(codigo_maquina) = ? AND id != ?').get(codLimpio, id);
+      if (duplicadoCod) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: `El código de máquina [${codLimpio}] ya pertenece a ${duplicadoCod.nombre_completo || duplicadoCod.nombre}.` 
+        });
+      }
+    }
+
+    // Si cambia de cédula, verificar que no colisione
+    if (cedLimpia && cedLimpia !== actual.cedula) {
+      const duplicadoCed = await db.prepare('SELECT id, nombre, nombre_completo FROM lideres_directorio WHERE cedula = ? AND id != ?').get(cedLimpia, id);
+      if (duplicadoCed) {
+        return res.status(400).json({ 
+          ok: false, 
+          error: `La cédula [${cedLimpia}] ya pertenece a ${duplicadoCed.nombre_completo || duplicadoCed.nombre}.` 
+        });
+      }
+    }
 
     const stmt = db.prepare(`
       UPDATE lideres_directorio 
       SET nombre = COALESCE(?, nombre),
           nombre_completo = COALESCE(?, nombre_completo),
+          cedula = COALESCE(?, cedula),
           codigo_maquina = COALESCE(?, codigo_maquina),
           modelo = COALESCE(?, modelo),
           area_default = COALESCE(?, area_default),
+          cargo = COALESCE(?, cargo),
+          tiene_pase_libre = COALESCE(?, tiene_pase_libre),
           activo = COALESCE(?, activo)
       WHERE id = ?
     `);
+
     await stmt.run(
       nombre ? nombre.trim() : null,
       nombre_completo ? nombre_completo.trim() : null,
-      codigo_maquina ? codigo_maquina.trim().toUpperCase() : null,
+      cedula !== undefined ? cedLimpia : null,
+      codigo_maquina !== undefined ? codLimpio : null,
       modelo ? modelo.trim() : null,
       area_default ? area_default.trim() : null,
+      cargo ? cargo.trim() : null,
+      tiene_pase_libre !== undefined ? Number(tiene_pase_libre) : null,
       activo !== undefined ? Number(activo) : null,
       id
     );
 
-    await registrarAuditoria(null, 'LIDER_ACTUALIZADO', 'Sistemas', `Líder ID ${id} actualizado (Laptop: ${codigo_maquina || 'Sin cambio'})`);
-    res.json({ ok: true, message: 'Datos del líder y laptop actualizados correctamente.' });
+    await registrarAuditoria(
+      null, 
+      'PERSONAL_ACTUALIZADO', 
+      'Sistemas', 
+      `Personal ID ${id} (${nombre_completo || actual.nombre_completo || actual.nombre}) actualizado por Sistemas. (Laptop: ${codLimpio || 'N/A'}, Cédula: ${cedLimpia || 'N/A'})`
+    );
+
+    res.json({ ok: true, message: 'Datos y equipo actualizados correctamente.' });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Eliminar o desactivar funcionario del directorio (Sistemas)
+app.delete('/api/lideres-directorio/:id', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const lider = await db.prepare('SELECT * FROM lideres_directorio WHERE id = ?').get(id);
+    if (!lider) {
+      return res.status(404).json({ ok: false, error: 'Registro no encontrado.' });
+    }
+
+    // Verificar si tiene movimientos registrados en lideres_movimientos
+    const movs = await db.prepare('SELECT COUNT(*) as c FROM lideres_movimientos WHERE lider_id = ?').get(id);
+    if (movs && movs.c > 0) {
+      await db.prepare('UPDATE lideres_directorio SET activo = 0 WHERE id = ?').run(id);
+      await registrarAuditoria(null, 'PERSONAL_DESACTIVADO', 'Sistemas', `Personal ID ${id} (${lider.nombre_completo || lider.nombre}) desactivado.`);
+      return res.json({ ok: true, message: 'Personal desactivado del directorio oficial (conservando historial de movimientos).' });
+    } else {
+      await db.prepare('DELETE FROM lideres_directorio WHERE id = ?').run(id);
+      await registrarAuditoria(null, 'PERSONAL_ELIMINADO', 'Sistemas', `Personal ID ${id} (${lider.nombre_completo || lider.nombre}) eliminado.`);
+      return res.json({ ok: true, message: 'Personal eliminado del directorio oficial.' });
+    }
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -1083,6 +1228,73 @@ app.delete('/api/solicitudes/:id', requireRole(['sistemas']), async (req, res) =
   }
 });
 
+// 8.2. Edición Completa de Solicitud (Sistemas Super Admin)
+app.put('/api/solicitudes/:id', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      cedula,
+      nombres,
+      area,
+      lider_nombre,
+      codigo_maquina,
+      modelo,
+      tipo_equipo,
+      fecha_salida,
+      fecha_retorno_estimada,
+      estado,
+      observaciones
+    } = req.body;
+
+    const actual = await db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
+    if (!actual) {
+      return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
+    }
+
+    const stmt = db.prepare(`
+      UPDATE solicitudes
+      SET cedula = COALESCE(?, cedula),
+          nombres = COALESCE(?, nombres),
+          area = COALESCE(?, area),
+          lider_nombre = COALESCE(?, lider_nombre),
+          codigo_maquina = COALESCE(?, codigo_maquina),
+          modelo = COALESCE(?, modelo),
+          tipo_equipo = COALESCE(?, tipo_equipo),
+          fecha_salida = COALESCE(?, fecha_salida),
+          fecha_retorno_estimada = COALESCE(?, fecha_retorno_estimada),
+          estado = COALESCE(?, estado),
+          observaciones = COALESCE(?, observaciones)
+      WHERE id = ?
+    `);
+
+    await stmt.run(
+      cedula ? cedula.trim() : null,
+      nombres ? nombres.trim() : null,
+      area ? area.trim() : null,
+      lider_nombre ? lider_nombre.trim() : null,
+      codigo_maquina ? codigo_maquina.trim().toUpperCase() : null,
+      modelo ? modelo.trim().toUpperCase() : null,
+      tipo_equipo ? tipo_equipo.trim() : null,
+      fecha_salida || null,
+      fecha_retorno_estimada || null,
+      estado || null,
+      observaciones !== undefined ? observaciones.trim() : null,
+      id
+    );
+
+    await registrarAuditoria(
+      id,
+      'EDITADA_POR_SISTEMAS',
+      'Sistemas',
+      `Solicitud #${id} modificada por Sistemas. (Asesor: ${nombres || actual.nombres}, Serie: ${codigo_maquina || actual.codigo_maquina}, Cédula: ${cedula || actual.cedula})`
+    );
+
+    res.json({ ok: true, message: 'Solicitud actualizada correctamente por Sistemas.' });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // 8.3. Depuración Masiva al Final del Día (Quitar todos los aprobados que no salieron)
 app.post('/api/solicitudes/depurar-no-salidos', requireRole(['sistemas']), async (req, res) => {
   try {
@@ -1221,11 +1433,11 @@ app.get('/api/garita/buscar', async (req, res) => {
     const term = q.trim();
     const today = getFechaLocalEcuador();
 
-    // 1. Verificar si el término coincide con la laptop asignada a un Líder oficial (Paso Libre)
+    // 1. Verificar si el término coincide con la laptop asignada a un Líder oficial o personal autorizado
     const liderMatch = await db.prepare(`
       SELECT * FROM lideres_directorio 
-      WHERE (UPPER(codigo_maquina) = ? OR LOWER(nombre) = LOWER(?) OR LOWER(nombre_completo) = LOWER(?)) AND activo = 1
-    `).get(term.toUpperCase(), term, term);
+      WHERE (UPPER(codigo_maquina) = ? OR LOWER(nombre) = LOWER(?) OR LOWER(nombre_completo) = LOWER(?) OR cedula = ?) AND activo = 1
+    `).get(term.toUpperCase(), term, term, term);
 
     if (liderMatch) {
       return res.json({

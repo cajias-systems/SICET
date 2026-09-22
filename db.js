@@ -147,6 +147,20 @@ async function initDb() {
       );
     `);
 
+    // Migraciones automáticas seguras para lideres_directorio
+    const safeAddColumns = [
+      "ALTER TABLE lideres_directorio ADD COLUMN cedula TEXT DEFAULT ''",
+      "ALTER TABLE lideres_directorio ADD COLUMN cargo TEXT DEFAULT 'Líder de Operaciones'",
+      "ALTER TABLE lideres_directorio ADD COLUMN tiene_pase_libre INTEGER DEFAULT 1"
+    ];
+    for (const sqlAdd of safeAddColumns) {
+      try {
+        await client.execute(sqlAdd);
+      } catch (colErr) {
+        // Columna ya existe, ignorar
+      }
+    }
+
     // Sembrar los 27 líderes
     const checkLid = await client.execute('SELECT COUNT(*) as c FROM lideres_directorio');
     if (checkLid.rows[0].c === 0) {
@@ -160,21 +174,37 @@ async function initDb() {
         'Victor', 'Rayza'
       ];
       for (const l of nominaLideres) {
-        await client.execute({ sql: 'INSERT OR IGNORE INTO lideres_directorio (nombre, area_default) VALUES (?, ?)', args: [l, 'Cobranzas'] });
+        await client.execute({ sql: "INSERT OR IGNORE INTO lideres_directorio (nombre, area_default, cargo, tiene_pase_libre) VALUES (?, 'Cobranzas', 'Líder de Operaciones', 1)", args: [l] });
       }
     }
 
-    // Sembrar 6 áreas oficiales
+    // Sembrar áreas oficiales completas de la empresa
     const defaultAreas = [
       'Cobranzas',
-      'Minimarket / Tiendita',
+      'Sistemas / TI',
       'Recursos Humanos',
       'Gerencia de Cobranzas',
-      'Limpieza',
-      'Sistemas / TI'
+      'Gerencia General',
+      'Auditoría',
+      'Contabilidad',
+      'Minimarket / Tiendita',
+      'Administración General',
+      'Limpieza'
     ];
     for (const a of defaultAreas) {
       await client.execute({ sql: 'INSERT OR IGNORE INTO areas (nombre) VALUES (?)', args: [a] });
+    }
+
+    // Asegurar registro inicial para Sistemas en el directorio de personal
+    try {
+      await client.execute({
+        sql: `INSERT OR IGNORE INTO lideres_directorio 
+              (nombre, nombre_completo, codigo_maquina, modelo, area_default, cargo, tiene_pase_libre, estado_ubicacion, activo) 
+              VALUES (?, ?, ?, ?, ?, ?, 1, 'EN_PLANTA', 1)`,
+        args: ['Sistemas', 'DAVID SISTEMAS / TI', 'SIS-01-CORP', 'DELL Latitude 5420', 'Sistemas / TI', 'Jefe de Sistemas / TI']
+      });
+    } catch (eSys) {
+      // Ya existe
     }
 
     // Sembrar usuarios

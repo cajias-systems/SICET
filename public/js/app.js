@@ -1178,6 +1178,9 @@ async function cargarSolicitudesSistemas() {
             <button onclick="abrirModalCambiarEquipo(${item.id}, '${item.nombres}', '${item.codigo_maquina}', '${item.modelo || 'DELL'}')" class="touch-btn px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold" title="Reemplazar máquina averiada por otra">
               🔄 Cambiar
             </button>
+            <button onclick="abrirModalEditarSolicitudDirecta(${item.id})" class="touch-btn px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg text-xs font-bold" title="Editar todos los datos (cédula, serie, etc.)">
+              ✏️ Editar
+            </button>
           </td>
         </tr>
       `;
@@ -1469,7 +1472,7 @@ async function abrirModalDirectorioLideres() {
   if (!modal) return;
   modal.classList.remove('hidden');
   modal.classList.add('flex');
-  cargarListaDirectorioModal();
+  await cargarListaDirectorioModal();
 }
 
 function cerrarModalDirectorioLideres() {
@@ -1480,94 +1483,356 @@ function cerrarModalDirectorioLideres() {
   }
 }
 
+// GESTIÓN COMPLETA DEL DIRECTORIO DE PERSONAL Y EQUIPOS (SISTEMAS SUPER ADMIN)
+let personalDirectorioModalCache = [];
+
 async function cargarListaDirectorioModal() {
-  const cont = document.getElementById('listaLideresDirectorioModal');
+  const cont = document.getElementById('listaPersonalDirectorioModal');
   if (!cont) return;
   try {
-    const res = await fetch('/api/lideres-directorio');
+    const res = await fetchAuth('/api/lideres-directorio?todos=1');
     const json = await res.json();
     if (json.ok && json.data) {
-      cont.innerHTML = json.data.map(l => `
-        <div class="flex items-center justify-between py-2 px-2 text-xs border-b border-slate-100 hover:bg-slate-50 transition rounded-lg">
-          <div>
-            <div class="font-bold text-slate-800">${l.nombre_completo || l.nombre}</div>
-            <div class="text-[11px] text-slate-400 font-mono">Usuario: ${l.nombre} &bull; ${l.area_default || 'Cobranzas'}</div>
-          </div>
-          <div class="flex items-center gap-2">
-            <span class="font-mono font-black text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-[11px]">
-              ${l.codigo_maquina || 'Sin Laptop'}
-            </span>
-            <button 
-              type="button" 
-              onclick="editarLaptopLiderPrompt(${l.id}, '${l.nombre}', '${l.codigo_maquina || ''}')" 
-              class="px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-800 rounded font-bold text-[10px] transition"
-              title="Editar número de serie de laptop"
-            >
-              Cambiar Serie
-            </button>
-          </div>
-        </div>
-      `).join('');
+      personalDirectorioModalCache = json.data;
+      filtrarListaPersonalModal();
     }
   } catch (e) {
-    cont.innerHTML = '<div class="p-3 text-rose-500">Error al cargar directorio.</div>';
+    cont.innerHTML = '<tr><td colspan="8" class="p-4 text-center text-rose-500 font-bold">Error al cargar directorio de personal.</td></tr>';
   }
 }
 
-async function editarLaptopLiderPrompt(id, nombre, serieActual = '') {
-  const nuevaSerie = prompt(`Actualizar laptop asignada para el líder "${nombre}":\n\nIngrese el nuevo número de serie de la laptop:`, serieActual || '');
-  if (nuevaSerie === null) return; // Cancelado por el usuario
+function filtrarListaPersonalModal() {
+  const cont = document.getElementById('listaPersonalDirectorioModal');
+  if (!cont) return;
 
-  const serieLimpia = nuevaSerie.trim().toUpperCase();
+  const q = (document.getElementById('filtroModalPersonal')?.value || '').toLowerCase().trim();
+  const depto = document.getElementById('filtroDeptoModalPersonal')?.value || 'TODOS';
+
+  let items = personalDirectorioModalCache.filter(l => {
+    const matchQ = !q ||
+      (l.nombre && l.nombre.toLowerCase().includes(q)) ||
+      (l.nombre_completo && l.nombre_completo.toLowerCase().includes(q)) ||
+      (l.cedula && l.cedula.toLowerCase().includes(q)) ||
+      (l.codigo_maquina && l.codigo_maquina.toLowerCase().includes(q)) ||
+      (l.cargo && l.cargo.toLowerCase().includes(q));
+
+    const matchDepto = (depto === 'TODOS' || (l.area_default || 'Cobranzas') === depto);
+
+    return matchQ && matchDepto;
+  });
+
+  if (items.length === 0) {
+    cont.innerHTML = '<tr><td colspan="8" class="py-8 text-center text-slate-400 font-bold">No se encontraron funcionarios o líderes con los filtros aplicados.</td></tr>';
+    return;
+  }
+
+  cont.innerHTML = items.map((l) => {
+    const esPaseLibre = (l.tiene_pase_libre !== 0);
+    const esActivo = (l.activo !== 0);
+
+    return `
+      <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+        <td class="py-2.5 px-3">
+          <div class="font-black text-slate-900">${l.nombre_completo || l.nombre}</div>
+          <div class="text-[11px] text-purple-700 font-mono font-bold">Usuario: ${l.nombre}</div>
+        </td>
+        <td class="py-2.5 px-3 font-mono font-bold text-slate-700">
+          ${l.cedula ? `<span class="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">${l.cedula}</span>` : '<span class="text-slate-400 italic">Sin cédula</span>'}
+        </td>
+        <td class="py-2.5 px-3">
+          <div class="font-bold text-slate-800">${l.area_default || 'Cobranzas'}</div>
+          <div class="text-[11px] text-slate-500 font-medium">${l.cargo || 'Funcionario'}</div>
+        </td>
+        <td class="py-2.5 px-3 font-mono font-black text-blue-700">
+          ${l.codigo_maquina ? `<span class="bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">${l.codigo_maquina}</span>` : '<span class="text-rose-400 font-normal italic">Sin equipo</span>'}
+        </td>
+        <td class="py-2.5 px-3 text-slate-600 font-medium">
+          ${l.modelo || 'Laptop'}
+        </td>
+        <td class="py-2.5 px-3 text-center">
+          ${esPaseLibre 
+            ? '<span class="px-2 py-0.5 bg-amber-100 text-amber-900 rounded-full font-black text-[10px] border border-amber-300">👑 Pase Libre</span>' 
+            : '<span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full font-bold text-[10px]">📄 Ticket</span>'}
+        </td>
+        <td class="py-2.5 px-3 text-center">
+          ${esActivo 
+            ? '<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-bold text-[10px]">Activo</span>' 
+            : '<span class="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full font-bold text-[10px]">Inactivo</span>'}
+        </td>
+        <td class="py-2.5 px-3 text-center space-x-1 whitespace-nowrap">
+          <button 
+            type="button" 
+            onclick="abrirModalFormularioPersonal(${l.id})" 
+            class="touch-btn px-2 py-1 bg-blue-100 hover:bg-blue-200 text-blue-800 rounded-lg font-bold text-xs transition"
+            title="Editar información completa, cédula y laptop"
+          >
+            ✏️ Editar
+          </button>
+          <button 
+            type="button" 
+            onclick="eliminarPersonalDirectorio(${l.id}, '${l.nombre_completo || l.nombre}')" 
+            class="touch-btn px-2 py-1 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg font-bold text-xs transition"
+            title="Eliminar o desactivar funcionario"
+          >
+            🗑️
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  lucide.createIcons();
+}
+
+function abrirModalFormularioPersonal(id = null) {
+  const modal = document.getElementById('modalFormularioPersonal');
+  if (!modal) return;
+
+  const inputId = document.getElementById('formPersonalId');
+  const inputNomComp = document.getElementById('formPersonalNombreCompleto');
+  const inputNom = document.getElementById('formPersonalNombre');
+  const inputCed = document.getElementById('formPersonalCedula');
+  const selectArea = document.getElementById('formPersonalArea');
+  const inputCargo = document.getElementById('formPersonalCargo');
+  const inputCod = document.getElementById('formPersonalCodigoMaquina');
+  const inputMod = document.getElementById('formPersonalModelo');
+  const selectPase = document.getElementById('formPersonalPaseLibre');
+  const selectAct = document.getElementById('formPersonalActivo');
+  const titulo = document.getElementById('tituloModalPersonal');
+  const btnGuardar = document.getElementById('btnGuardarPersonal');
+
+  if (id) {
+    const l = personalDirectorioModalCache.find(item => item.id === id);
+    if (!l) return;
+
+    if (inputId) inputId.value = l.id;
+    if (inputNomComp) inputNomComp.value = l.nombre_completo || l.nombre;
+    if (inputNom) inputNom.value = l.nombre;
+    if (inputCed) inputCed.value = l.cedula || '';
+    if (selectArea) selectArea.value = l.area_default || 'Cobranzas';
+    if (inputCargo) inputCargo.value = l.cargo || 'Líder de Operaciones';
+    if (inputCod) inputCod.value = l.codigo_maquina || '';
+    if (inputMod) inputMod.value = l.modelo || 'Laptop DELL';
+    if (selectPase) selectPase.value = (l.tiene_pase_libre !== 0) ? '1' : '0';
+    if (selectAct) selectAct.value = (l.activo !== 0) ? '1' : '0';
+
+    if (titulo) titulo.textContent = `Editar Funcionario: ${l.nombre}`;
+    if (btnGuardar) btnGuardar.textContent = 'Guardar Cambios';
+  } else {
+    if (inputId) inputId.value = '';
+    if (inputNomComp) inputNomComp.value = '';
+    if (inputNom) inputNom.value = '';
+    if (inputCed) inputCed.value = '';
+    if (selectArea) selectArea.value = 'Cobranzas';
+    if (inputCargo) inputCargo.value = 'Líder de Operaciones';
+    if (inputCod) inputCod.value = '';
+    if (inputMod) inputMod.value = 'Laptop DELL';
+    if (selectPase) selectPase.value = '1';
+    if (selectAct) selectAct.value = '1';
+
+    if (titulo) titulo.textContent = 'Agregar Nuevo Personal o Líder';
+    if (btnGuardar) btnGuardar.textContent = 'Guardar Funcionario';
+  }
+
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+
+function cerrarModalFormularioPersonal() {
+  const modal = document.getElementById('modalFormularioPersonal');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  }
+}
+
+async function guardarFormularioPersonal(e) {
+  e.preventDefault();
+  const id = document.getElementById('formPersonalId')?.value;
+  const nombre_completo = document.getElementById('formPersonalNombreCompleto')?.value.trim();
+  const nombre = document.getElementById('formPersonalNombre')?.value.trim();
+  const cedula = document.getElementById('formPersonalCedula')?.value.trim();
+  const area_default = document.getElementById('formPersonalArea')?.value;
+  const cargo = document.getElementById('formPersonalCargo')?.value.trim();
+  const codigo_maquina = document.getElementById('formPersonalCodigoMaquina')?.value.trim().toUpperCase();
+  const modelo = document.getElementById('formPersonalModelo')?.value.trim().toUpperCase();
+  const tiene_pase_libre = Number(document.getElementById('formPersonalPaseLibre')?.value || 1);
+  const activo = Number(document.getElementById('formPersonalActivo')?.value || 1);
+
+  if (!nombre) {
+    alert('El usuario o alias es requerido.');
+    return;
+  }
+
+  const payload = {
+    nombre,
+    nombre_completo: nombre_completo || nombre,
+    cedula,
+    area_default,
+    cargo,
+    codigo_maquina,
+    modelo: modelo || 'Laptop DELL',
+    tiene_pase_libre,
+    activo
+  };
+
   try {
-    const res = await fetchAuth(`/api/lideres-directorio/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        codigo_maquina: serieLimpia
-      })
-    });
+    let res;
+    if (id) {
+      res = await fetchAuth(`/api/lideres-directorio/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } else {
+      res = await fetchAuth('/api/lideres-directorio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
 
     const json = await res.json();
     if (json.ok) {
-      showToast(`Laptop actualizada para ${nombre}: ${serieLimpia || 'Sin asignar'}`, 'success');
-      cargarListaDirectorioModal();
+      playSuccessSound();
+      showToast(json.message || 'Personal guardado correctamente.', 'success');
+      cerrarModalFormularioPersonal();
+      await cargarListaDirectorioModal();
       if (typeof cargarLideresEquipos === 'function') {
         cargarLideresEquipos();
       }
+      if (typeof cargarComboLideresLogin === 'function') cargarComboLideresLogin();
+      if (typeof cargarLideresSelectores === 'function') cargarLideresSelectores();
     } else {
-      alert(json.error || 'Error al actualizar la laptop del líder.');
+      playErrorSound();
+      alert(json.error || 'Error al guardar personal.');
     }
   } catch (error) {
     showToast('Error: ' + error.message, 'error');
   }
 }
 
-async function agregarLiderDirectorio(e) {
-  e.preventDefault();
-  const inp = document.getElementById('nuevoLiderNombre');
-  const nombre = inp ? inp.value.trim() : '';
-  if (!nombre) return;
+async function eliminarPersonalDirectorio(id, nombre) {
+  const confirmacion = confirm(`¿Está seguro de que desea retirar o desactivar a "${nombre}" del directorio oficial?\n\nSi tiene movimientos históricos, se desactivará para conservar la auditoría.`);
+  if (!confirmacion) return;
 
   try {
-    const res = await fetchAuth('/api/lideres-directorio', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nombre })
+    const res = await fetchAuth(`/api/lideres-directorio/${id}`, {
+      method: 'DELETE'
     });
     const json = await res.json();
+
     if (json.ok) {
-      showToast('Líder agregado al directorio oficial.', 'success');
-      if (inp) inp.value = '';
-      cargarListaDirectorioModal();
-      cargarComboLideresLogin();
-      cargarLideresSelectores();
+      playSuccessSound();
+      showToast(json.message, 'info');
+      await cargarListaDirectorioModal();
+      if (typeof cargarLideresEquipos === 'function') {
+        cargarLideresEquipos();
+      }
     } else {
-      alert(json.error || 'Error al agregar líder.');
+      playErrorSound();
+      alert(json.error || 'Error al eliminar funcionario.');
+    }
+  } catch (error) {
+    showToast('Error: ' + error.message, 'error');
+  }
+}
+
+// EDITAR SOLICITUD DIRECTAMENTE DESDE SISTEMAS
+async function abrirModalEditarSolicitudDirecta(id) {
+  try {
+    const res = await fetchAuth(`/api/solicitudes?search=&estado=TODOS`);
+    const json = await res.json();
+
+    let sol = null;
+    if (json.ok && Array.isArray(json.data)) {
+      sol = json.data.find(s => s.id === id);
+    }
+
+    if (!sol) {
+      alert('No se pudo encontrar los datos de la solicitud.');
+      return;
+    }
+
+    document.getElementById('editSolId').value = sol.id;
+    document.getElementById('editSolCedula').value = sol.cedula;
+    document.getElementById('editSolNombres').value = sol.nombres;
+    document.getElementById('editSolCodigoMaquina').value = sol.codigo_maquina;
+    document.getElementById('editSolModelo').value = sol.modelo || 'DELL';
+    document.getElementById('editSolArea').value = sol.area || 'Cobranzas';
+    document.getElementById('editSolLider').value = sol.lider_nombre || '';
+    document.getElementById('editSolFechaSalida').value = sol.fecha_salida;
+    document.getElementById('editSolFechaRetorno').value = sol.fecha_retorno_estimada || sol.fecha_salida;
+    document.getElementById('editSolEstado').value = sol.estado;
+    document.getElementById('editSolObservaciones').value = sol.observaciones || '';
+
+    const modal = document.getElementById('modalEditarSolicitud');
+    if (modal) {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
     }
   } catch (e) {
-    showToast('Error: ' + e.message, 'error');
+    showToast('Error al abrir solicitud: ' + e.message, 'error');
   }
+}
+
+function cerrarModalEditarSolicitud() {
+  const modal = document.getElementById('modalEditarSolicitud');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  }
+}
+
+async function guardarEdicionSolicitudSistemas(e) {
+  e.preventDefault();
+  const id = document.getElementById('editSolId')?.value;
+  if (!id) return;
+
+  const payload = {
+    cedula: document.getElementById('editSolCedula')?.value.trim(),
+    nombres: document.getElementById('editSolNombres')?.value.trim().toUpperCase(),
+    codigo_maquina: document.getElementById('editSolCodigoMaquina')?.value.trim().toUpperCase(),
+    modelo: document.getElementById('editSolModelo')?.value.trim().toUpperCase(),
+    area: document.getElementById('editSolArea')?.value,
+    lider_nombre: document.getElementById('editSolLider')?.value.trim(),
+    fecha_salida: document.getElementById('editSolFechaSalida')?.value,
+    fecha_retorno_estimada: document.getElementById('editSolFechaRetorno')?.value,
+    estado: document.getElementById('editSolEstado')?.value,
+    observaciones: document.getElementById('editSolObservaciones')?.value.trim()
+  };
+
+  try {
+    const res = await fetchAuth(`/api/solicitudes/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const json = await res.json();
+    if (json.ok) {
+      playSuccessSound();
+      showToast(json.message || 'Solicitud actualizada con éxito.', 'success');
+      cerrarModalEditarSolicitud();
+      cargarSolicitudesSistemas();
+      actualizarMetricasGenerales();
+    } else {
+      playErrorSound();
+      alert(json.error || 'Error al actualizar solicitud.');
+    }
+  } catch (error) {
+    showToast('Error: ' + error.message, 'error');
+  }
+}
+
+// Funciones de compatibilidad hacia atrás
+async function editarLaptopLiderPrompt(id, nombre, serieActual = '') {
+  abrirModalFormularioPersonal(id);
+}
+
+async function agregarLiderDirectorio(e) {
+  if (e) e.preventDefault();
+  abrirModalFormularioPersonal(null);
 }
 
 function exportarExcelSistemas() {
@@ -2812,6 +3077,10 @@ function renderizarPaseLibreLiderEnGarita(lider) {
   const accionTexto = esFuera ? 'REGISTRAR REINGRESO A PLANTA (ENTER)' : 'CONFIRMAR SALIDA LIBRE (ENTER)';
   const accionIcono = esFuera ? 'log-in' : 'log-out';
 
+  const cargoTexto = (lider.cargo || 'Líder de Operaciones').toUpperCase();
+  const deptoTexto = lider.area_default || 'Cobranzas';
+  const cedulaTexto = lider.cedula ? `<span class="font-mono text-slate-950 bg-white px-2 py-0.5 rounded border border-purple-200">${lider.cedula}</span>` : '<span class="italic text-slate-400">Sin registrar</span>';
+
   container.innerHTML = `
     <div class="${colorBg} border-4 ${colorBorde} rounded-3xl p-6 sm:p-8 shadow-2xl card-success-pulse">
       <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-purple-200">
@@ -2822,7 +3091,7 @@ function renderizarPaseLibreLiderEnGarita(lider) {
           <div>
             <div class="flex items-center gap-2">
               <span class="px-3 py-1 bg-purple-700 text-white text-xs font-black uppercase rounded-full tracking-wider flex items-center gap-1">
-                <span>👑 PASE LIBRE AUTORIZADO - LÍDER DE OPERACIONES</span>
+                <span>👑 PASE LIBRE AUTORIZADO - ${cargoTexto}</span>
               </span>
               <span class="text-xs ${esFuera ? 'text-indigo-800' : 'text-purple-800'} font-bold">
                 Estado Actual: <strong>${esFuera ? '🔴 FUERA DE PLANTA' : '🟢 EN PLANTA (OFICINA)'}</strong>
@@ -2830,9 +3099,11 @@ function renderizarPaseLibreLiderEnGarita(lider) {
             </div>
             <h2 class="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight mt-1">${lider.nombre_completo || lider.nombre}</h2>
             <div class="flex flex-wrap items-center gap-3 text-sm text-slate-700 mt-1 font-semibold">
-              <span>Usuario/Rol: <strong class="text-purple-900 font-mono">${lider.nombre}</strong></span>
+              <span>Cédula: ${cedulaTexto}</span>
               <span>&bull;</span>
-              <span>Área: <strong class="text-slate-900">${lider.area_default || 'Cobranzas'}</strong></span>
+              <span>Depto: <strong class="text-purple-900">${deptoTexto}</strong></span>
+              <span>&bull;</span>
+              <span>Cargo: <strong class="text-slate-900">${lider.cargo || 'Líder'}</strong></span>
               <span>&bull;</span>
               <span>Paso: <strong class="text-emerald-700">Libre sin ticket</strong></span>
             </div>
@@ -2840,9 +3111,9 @@ function renderizarPaseLibreLiderEnGarita(lider) {
         </div>
 
         <div class="bg-white px-6 py-4 rounded-2xl border-2 border-purple-400 text-center shadow-md">
-          <div class="text-[11px] uppercase font-black text-purple-900 tracking-wider">Laptop Asignada al Líder</div>
+          <div class="text-[11px] uppercase font-black text-purple-900 tracking-wider">Laptop Asignada</div>
           <div class="text-3xl font-mono font-black text-purple-700 mt-1 tracking-widest">${lider.codigo_maquina}</div>
-          <div class="text-xs font-bold text-slate-600 mt-0.5">${lider.modelo || 'DELL Corporativo'}</div>
+          <div class="text-xs font-bold text-slate-600 mt-0.5">${lider.modelo || 'Laptop DELL'}</div>
         </div>
       </div>
 
@@ -2850,8 +3121,8 @@ function renderizarPaseLibreLiderEnGarita(lider) {
         <div class="flex items-center gap-3 text-purple-950">
           <i data-lucide="shield-check" class="w-8 h-8 text-purple-600 flex-shrink-0"></i>
           <div>
-            <div class="font-black text-base">Equipo y Líder Verificados Correctamente</div>
-            <div class="text-xs text-purple-800 font-medium">Los líderes no requieren ticket de Sistemas. Presione el botón o pulse ENTER para registrar en la bitácora.</div>
+            <div class="font-black text-base">Equipo y Funcionario Verificados Correctamente</div>
+            <div class="text-xs text-purple-800 font-medium">Cuenta con pase libre institucional. Presione el botón o pulse ENTER para registrar en la bitácora.</div>
           </div>
         </div>
 
@@ -2946,14 +3217,19 @@ async function cargarLideresEquipos() {
 
 function filtrarTablaLideresEquipos() {
   const q = (document.getElementById('filtroLideresEquipos')?.value || '').toLowerCase().trim();
+  const deptoFiltro = document.getElementById('filtroDeptoLideresEquipos')?.value || 'TODOS';
   const estadoFiltro = document.getElementById('filtroUbicacionLider')?.value || 'TODOS';
 
   let filtrados = lideresEquiposCache.filter(l => {
     const matchQ = !q || 
       (l.nombre && l.nombre.toLowerCase().includes(q)) || 
       (l.nombre_completo && l.nombre_completo.toLowerCase().includes(q)) || 
+      (l.cedula && l.cedula.toLowerCase().includes(q)) ||
+      (l.cargo && l.cargo.toLowerCase().includes(q)) ||
       (l.codigo_maquina && l.codigo_maquina.toLowerCase().includes(q)) ||
       (l.modelo && l.modelo.toLowerCase().includes(q));
+
+    let matchDepto = (deptoFiltro === 'TODOS' || (l.area_default || 'Cobranzas') === deptoFiltro);
 
     let matchEstado = true;
     if (estadoFiltro === 'EN_PLANTA') {
@@ -2962,7 +3238,7 @@ function filtrarTablaLideresEquipos() {
       matchEstado = (l.estado_ubicacion === 'FUERA');
     }
 
-    return matchQ && matchEstado;
+    return matchQ && matchDepto && matchEstado;
   });
 
   renderizarTablaLideresEquipos(filtrados);
@@ -2975,8 +3251,8 @@ function renderizarTablaLideresEquipos(lideres) {
   if (!lideres || lideres.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="text-center py-8 text-slate-400 font-bold">
-          No se encontraron líderes con los filtros aplicados.
+        <td colspan="9" class="text-center py-8 text-slate-400 font-bold">
+          No se encontraron líderes o personal con los filtros aplicados.
         </td>
       </tr>
     `;
@@ -2997,7 +3273,7 @@ function renderizarTablaLideresEquipos(lideres) {
       ? `<button 
            onclick="confirmarMovimientoLider(${l.id}, '${l.codigo_maquina}', 'INGRESO')"
            class="touch-btn px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow flex items-center gap-1 mx-auto transition"
-           title="Registrar reingreso del líder"
+           title="Registrar reingreso a planta"
          >
            <i data-lucide="log-in" class="w-3.5 h-3.5"></i>
            <span>Reingreso</span>
@@ -3021,12 +3297,14 @@ function renderizarTablaLideresEquipos(lideres) {
         <td class="py-3 px-4 font-mono text-xs text-slate-400">${index + 1}</td>
         <td class="py-3 px-4">
           <div class="font-black text-slate-900">${l.nombre_completo || l.nombre}</div>
-          <div class="text-[11px] text-slate-500 font-medium">${l.area_default || 'Cobranzas'}</div>
+          <div class="text-[11px] text-purple-700 font-mono">Usuario: ${l.nombre}</div>
+        </td>
+        <td class="py-3 px-4 font-mono text-xs font-bold text-slate-700">
+          ${l.cedula ? `<span class="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">${l.cedula}</span>` : '<span class="text-slate-400 italic font-normal">Sin cédula</span>'}
         </td>
         <td class="py-3 px-4">
-          <span class="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-slate-100 text-slate-800 border border-slate-200">
-            ${l.nombre}
-          </span>
+          <div class="font-black text-slate-800 text-xs">${l.area_default || 'Cobranzas'}</div>
+          <div class="text-[11px] text-slate-500 font-medium">${l.cargo || 'Funcionario'}</div>
         </td>
         <td class="py-3 px-4 font-mono font-black text-blue-700 text-sm tracking-wider">
           ${l.codigo_maquina ? `<span class="bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg">${l.codigo_maquina}</span>` : '<span class="text-rose-400 font-normal">Sin asignar</span>'}
@@ -3130,6 +3408,7 @@ async function verificarLiderPorEscaneo(e) {
   let lider = lideresEquiposCache.find(l => 
     (l.codigo_maquina && l.codigo_maquina.toUpperCase() === term) ||
     (l.nombre && l.nombre.toUpperCase() === term) ||
+    (l.cedula && l.cedula === term) ||
     (l.nombre_completo && l.nombre_completo.toUpperCase().includes(term))
   );
 
@@ -3152,6 +3431,7 @@ async function verificarLiderPorEscaneo(e) {
     const btnTexto = esFuera ? 'REGISTRAR INGRESO A PLANTA (ENTER)' : 'CONFIRMAR SALIDA DE PLANTA (ENTER)';
     const btnColor = esFuera ? 'bg-indigo-600 hover:bg-indigo-500' : 'bg-purple-600 hover:bg-purple-500';
     const badgeColor = esFuera ? 'bg-indigo-700' : 'bg-purple-700';
+    const cargoTexto = (lider.cargo || 'Líder de Operaciones').toUpperCase();
 
     container.innerHTML = `
       <div class="bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 border-4 border-purple-500 rounded-3xl p-6 sm:p-8 shadow-2xl card-success-pulse">
@@ -3163,7 +3443,7 @@ async function verificarLiderPorEscaneo(e) {
             <div>
               <div class="flex items-center gap-2">
                 <span class="px-3 py-1 ${badgeColor} text-white text-xs font-black uppercase rounded-full tracking-wider">
-                  👑 PASE LIBRE AUTORIZADO - LÍDER DE OPERACIONES
+                  👑 PASE LIBRE AUTORIZADO - ${cargoTexto}
                 </span>
                 <span class="text-xs font-bold text-purple-900">
                   Estado: <strong>${esFuera ? '🔴 FUERA DE PLANTA' : '🟢 EN PLANTA (OFICINA)'}</strong>
@@ -3173,9 +3453,11 @@ async function verificarLiderPorEscaneo(e) {
                 ${lider.nombre_completo || lider.nombre}
               </h2>
               <div class="flex flex-wrap items-center gap-3 text-sm text-slate-700 mt-1 font-semibold">
-                <span>Rol: <strong class="text-purple-900 font-mono">${lider.nombre}</strong></span>
+                <span>Cédula: <strong class="font-mono text-purple-900 bg-white px-1.5 py-0.5 rounded border border-purple-200">${lider.cedula || 'N/A'}</strong></span>
                 <span>&bull;</span>
-                <span>Área: <strong class="text-slate-900">${lider.area_default || 'Cobranzas'}</strong></span>
+                <span>Depto: <strong class="text-purple-900">${lider.area_default || 'Cobranzas'}</strong></span>
+                <span>&bull;</span>
+                <span>Cargo: <strong class="text-slate-900">${lider.cargo || 'Funcionario'}</strong></span>
                 <span>&bull;</span>
                 <span>Paso: <strong class="text-emerald-700">Libre sin ticket</strong></span>
               </div>

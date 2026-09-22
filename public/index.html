@@ -1106,11 +1106,23 @@
                 <input 
                   type="text" 
                   id="filtroLideresEquipos" 
-                  placeholder="Buscar por líder o serie..." 
+                  placeholder="Buscar por líder, cédula o serie..." 
                   oninput="filtrarTablaLideresEquipos()" 
-                  class="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none w-56"
+                  class="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none w-52"
                 >
               </div>
+              <select id="filtroDeptoLideresEquipos" onchange="filtrarTablaLideresEquipos()" class="px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-xl focus:outline-none bg-slate-50">
+                <option value="TODOS">Todos los Deptos</option>
+                <option value="Cobranzas">Cobranzas</option>
+                <option value="Sistemas / TI">Sistemas / TI</option>
+                <option value="Recursos Humanos">Recursos Humanos</option>
+                <option value="Gerencia de Cobranzas">Gerencia de Cobranzas</option>
+                <option value="Gerencia General">Gerencia General</option>
+                <option value="Auditoría">Auditoría</option>
+                <option value="Contabilidad">Contabilidad</option>
+                <option value="Minimarket / Tiendita">Minimarket / Tiendita</option>
+                <option value="Administración General">Administración General</option>
+              </select>
               <select id="filtroUbicacionLider" onchange="filtrarTablaLideresEquipos()" class="px-3 py-1.5 text-xs font-bold border border-slate-300 rounded-xl focus:outline-none bg-slate-50">
                 <option value="TODOS">Todos los Estados</option>
                 <option value="EN_PLANTA">Solo En Planta</option>
@@ -1127,13 +1139,14 @@
               <thead class="text-xs uppercase bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                 <tr>
                   <th class="py-3 px-4">#</th>
-                  <th class="py-3 px-4">Líder (Nombre Completo)</th>
-                  <th class="py-3 px-4">Usuario / Rol</th>
-                  <th class="py-3 px-4">Serie Laptop Asignada</th>
+                  <th class="py-3 px-4">Funcionario / Líder</th>
+                  <th class="py-3 px-4">Cédula</th>
+                  <th class="py-3 px-4">Departamento / Cargo</th>
+                  <th class="py-3 px-4">Serie Laptop</th>
                   <th class="py-3 px-4">Modelo</th>
-                  <th class="py-3 px-4 text-center">Ubicación Actual</th>
+                  <th class="py-3 px-4 text-center">Ubicación</th>
                   <th class="py-3 px-4">Último Movimiento</th>
-                  <th class="py-3 px-4 text-center">Acción Inmediata</th>
+                  <th class="py-3 px-4 text-center">Acción</th>
                 </tr>
               </thead>
               <tbody id="tablaLideresEquipos" class="divide-y divide-slate-100 font-medium">
@@ -1267,25 +1280,256 @@
     </div>
   </div>
 
-  <!-- MODAL: GESTIONAR DIRECTORIO DE LÍDERES (SISTEMAS) -->
+  <!-- MODAL: CENTRO DE GESTIÓN DE PERSONAL & EQUIPOS (SISTEMAS) -->
   <div id="modalDirectorioLideres" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
-    <div class="bg-white rounded-3xl shadow-xl max-w-lg w-full p-6 space-y-4">
-      <div class="flex items-center justify-between border-b pb-3">
-        <div class="flex items-center gap-2 text-purple-600">
-          <i data-lucide="users" class="w-6 h-6"></i>
-          <h3 class="text-lg font-black text-slate-900">Directorio Oficial de Líderes</h3>
+    <div class="bg-white rounded-3xl shadow-2xl max-w-5xl w-full p-6 sm:p-8 space-y-5 max-h-[92vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-4">
+        <div class="flex items-center gap-3">
+          <div class="w-12 h-12 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center font-black">
+            <i data-lucide="users-cog" class="w-7 h-7"></i>
+          </div>
+          <div>
+            <h3 class="text-xl sm:text-2xl font-black text-slate-900">Centro de Gestión de Personal & Equipos Oficiales</h3>
+            <p class="text-xs text-slate-500 font-medium">Administre líderes, sistemas, auditoría, RRHH, gerencia, contabilidad y sus laptops corporativas.</p>
+          </div>
         </div>
-        <button onclick="cerrarModalDirectorioLideres()" class="text-slate-400 hover:text-slate-600">✕</button>
+        <button onclick="cerrarModalDirectorioLideres()" class="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center font-bold text-lg">✕</button>
       </div>
 
-      <form onsubmit="agregarLiderDirectorio(event)" class="flex gap-2">
-        <input type="text" id="nuevoLiderNombre" required placeholder="Nombre del nuevo líder..." class="flex-1 p-2.5 text-sm border rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
-        <button type="submit" class="px-4 py-2.5 bg-purple-600 text-white font-bold text-xs rounded-xl shadow">➕ Agregar Líder</button>
+      <!-- BARRA DE BÚSQUEDA, FILTROS Y BOTÓN NUEVO -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+        <div class="flex flex-wrap items-center gap-2 flex-1">
+          <div class="relative flex-1 sm:max-w-xs">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+            <input 
+              type="text" 
+              id="filtroModalPersonal" 
+              oninput="filtrarListaPersonalModal()" 
+              placeholder="Buscar por nombre, cédula o serie..." 
+              class="w-full pl-9 pr-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none bg-white font-medium"
+            >
+          </div>
+          <select id="filtroDeptoModalPersonal" onchange="filtrarListaPersonalModal()" class="px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl focus:outline-none bg-white">
+            <option value="TODOS">Todos los Departamentos</option>
+            <option value="Cobranzas">Cobranzas</option>
+            <option value="Sistemas / TI">Sistemas / TI</option>
+            <option value="Recursos Humanos">Recursos Humanos</option>
+            <option value="Gerencia de Cobranzas">Gerencia de Cobranzas</option>
+            <option value="Gerencia General">Gerencia General</option>
+            <option value="Auditoría">Auditoría</option>
+            <option value="Contabilidad">Contabilidad</option>
+            <option value="Minimarket / Tiendita">Minimarket / Tiendita</option>
+            <option value="Administración General">Administración General</option>
+          </select>
+        </div>
+
+        <button 
+          onclick="abrirModalFormularioPersonal(null)" 
+          class="touch-btn px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-2 transition"
+        >
+          <i data-lucide="user-plus" class="w-4 h-4"></i>
+          <span>+ Agregar Nuevo Personal / Líder</span>
+        </button>
+      </div>
+
+      <!-- TABLA SCROLLABLE CON TODO EL PERSONAL -->
+      <div class="flex-1 overflow-y-auto border border-slate-200 rounded-2xl">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-100 text-slate-600 uppercase font-black sticky top-0 border-b border-slate-200">
+            <tr>
+              <th class="py-3 px-3">Funcionario / Usuario</th>
+              <th class="py-3 px-3">Cédula</th>
+              <th class="py-3 px-3">Departamento & Cargo</th>
+              <th class="py-3 px-3">Serie Laptop</th>
+              <th class="py-3 px-3">Modelo</th>
+              <th class="py-3 px-3 text-center">Pase Libre</th>
+              <th class="py-3 px-3 text-center">Estado</th>
+              <th class="py-3 px-3 text-center">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="listaPersonalDirectorioModal" class="divide-y divide-slate-100 font-medium">
+            <!-- Dinámico -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUBMODAL: CREAR / EDITAR FUNCIONARIO O LÍDER (SISTEMAS) -->
+  <div id="modalFormularioPersonal" class="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 sm:p-7 space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <div class="flex items-center gap-2 text-purple-700">
+          <i data-lucide="user-check" class="w-6 h-6"></i>
+          <h3 id="tituloModalPersonal" class="text-lg font-black text-slate-900">Agregar Personal o Líder</h3>
+        </div>
+        <button onclick="cerrarModalFormularioPersonal()" class="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+      </div>
+
+      <form onsubmit="guardarFormularioPersonal(event)" class="space-y-3">
+        <input type="hidden" id="formPersonalId">
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Nombre Completo (Apellidos y Nombres) *</label>
+            <input type="text" id="formPersonalNombreCompleto" required placeholder="Ej: TENEMAZA PASICHE JULIO ALEXANDER" class="w-full p-2.5 text-xs font-semibold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Usuario / Alias / Rol *</label>
+            <input type="text" id="formPersonalNombre" required placeholder="Ej: Alexander" class="w-full p-2.5 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Cédula de Identidad</label>
+            <input type="text" id="formPersonalCedula" placeholder="Ej: 1725665127" class="w-full p-2.5 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Departamento / Área *</label>
+            <select id="formPersonalArea" required class="w-full p-2.5 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none bg-white">
+              <option value="Cobranzas">Cobranzas</option>
+              <option value="Sistemas / TI">Sistemas / TI</option>
+              <option value="Recursos Humanos">Recursos Humanos</option>
+              <option value="Gerencia de Cobranzas">Gerencia de Cobranzas</option>
+              <option value="Gerencia General">Gerencia General</option>
+              <option value="Auditoría">Auditoría</option>
+              <option value="Contabilidad">Contabilidad</option>
+              <option value="Minimarket / Tiendita">Minimarket / Tiendita</option>
+              <option value="Administración General">Administración General</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Cargo / Puesto *</label>
+            <input type="text" id="formPersonalCargo" required placeholder="Ej: Líder de Operaciones, Auditor, etc." value="Líder de Operaciones" class="w-full p-2.5 text-xs font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Serie Laptop Asignada (Código)</label>
+            <input type="text" id="formPersonalCodigoMaquina" placeholder="Ej: 6KLQV12" class="w-full p-2.5 text-xs font-mono font-black uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Modelo / Marca</label>
+            <input type="text" id="formPersonalModelo" placeholder="Ej: DELL Latitude" value="Laptop DELL" class="w-full p-2.5 text-xs font-semibold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Pase Libre en Garita</label>
+            <select id="formPersonalPaseLibre" class="w-full p-2.5 text-xs font-bold border border-slate-300 rounded-xl focus:outline-none bg-white">
+              <option value="1">👑 Sí (Paso Libre sin ticket)</option>
+              <option value="0">📄 No (Requiere Ticket)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Estado</label>
+            <select id="formPersonalActivo" class="w-full p-2.5 text-xs font-bold border border-slate-300 rounded-xl focus:outline-none bg-white">
+              <option value="1">Activo</option>
+              <option value="0">Inactivo / Desactivado</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button type="button" onclick="cerrarModalFormularioPersonal()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl">Cancelar</button>
+          <button type="submit" id="btnGuardarPersonal" class="px-5 py-2 text-xs font-black bg-purple-600 hover:bg-purple-700 text-white rounded-xl shadow">Guardar Funcionario</button>
+        </div>
       </form>
+    </div>
+  </div>
 
-      <div class="max-h-60 overflow-y-auto border rounded-2xl p-2 divide-y divide-slate-100" id="listaLideresDirectorioModal">
-        <!-- Dinámico -->
+  <!-- MODAL: EDITAR SOLICITUD DIRECTAMENTE (SISTEMAS SUPER ADMIN) -->
+  <div id="modalEditarSolicitud" class="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 sm:p-7 space-y-4">
+      <div class="flex items-center justify-between border-b pb-3">
+        <div class="flex items-center gap-2 text-blue-600">
+          <i data-lucide="edit-3" class="w-6 h-6"></i>
+          <h3 class="text-lg font-black text-slate-900">Editar Solicitud (Sistemas)</h3>
+        </div>
+        <button onclick="cerrarModalEditarSolicitud()" class="text-slate-400 hover:text-slate-600 font-bold">✕</button>
       </div>
+
+      <form onsubmit="guardarEdicionSolicitudSistemas(event)" class="space-y-3">
+        <input type="hidden" id="editSolId">
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Cédula del Asesor *</label>
+            <input type="text" id="editSolCedula" required class="w-full p-2.5 text-xs font-mono font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Nombres Completos *</label>
+            <input type="text" id="editSolNombres" required class="w-full p-2.5 text-xs font-semibold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Código / Serie de Máquina *</label>
+            <input type="text" id="editSolCodigoMaquina" required class="w-full p-2.5 text-xs font-mono font-black uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Modelo / Marca</label>
+            <input type="text" id="editSolModelo" class="w-full p-2.5 text-xs font-semibold uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Departamento / Área *</label>
+            <select id="editSolArea" required class="w-full p-2.5 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+              <option value="Cobranzas">Cobranzas</option>
+              <option value="Sistemas / TI">Sistemas / TI</option>
+              <option value="Recursos Humanos">Recursos Humanos</option>
+              <option value="Gerencia de Cobranzas">Gerencia de Cobranzas</option>
+              <option value="Gerencia General">Gerencia General</option>
+              <option value="Auditoría">Auditoría</option>
+              <option value="Contabilidad">Contabilidad</option>
+              <option value="Minimarket / Tiendita">Minimarket / Tiendita</option>
+              <option value="Administración General">Administración General</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Líder Responsable</label>
+            <input type="text" id="editSolLider" class="w-full p-2.5 text-xs font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Fecha Salida *</label>
+            <input type="date" id="editSolFechaSalida" required class="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Fecha Retorno Estimada</label>
+            <input type="date" id="editSolFechaRetorno" class="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">Estado</label>
+            <select id="editSolEstado" class="w-full p-2 text-xs font-bold border border-slate-300 rounded-xl focus:outline-none bg-white">
+              <option value="PENDIENTE">PENDIENTE</option>
+              <option value="APROBADO">APROBADO</option>
+              <option value="SALIO">SALIO (Teletrabajo)</option>
+              <option value="RETORNADO">RETORNADO</option>
+              <option value="NO_SALIO">NO SALIO</option>
+              <option value="RECHAZADO">RECHAZADO</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Observaciones</label>
+          <input type="text" id="editSolObservaciones" placeholder="Detalles o notas..." class="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button type="button" onclick="cerrarModalEditarSolicitud()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl">Cancelar</button>
+          <button type="submit" class="px-5 py-2 text-xs font-black bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow">Guardar Cambios</button>
+        </div>
+      </form>
     </div>
   </div>
 
