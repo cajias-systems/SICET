@@ -2093,9 +2093,9 @@ async function cargarMiEquipoHabitual() {
 
     miEquipoHabitualCache = json.data;
 
-    // Verificar el estado de solicitudes de hoy para estos asesores
+    // Verificar el estado de solicitudes de hoy para estos asesores (a nivel general para detectar si otro líder ya lo autorizó)
     const today = getFechaLocalEcuador();
-    const resSol = await fetchAuth(`/api/solicitudes?fecha=${today}&lider=${encodeURIComponent(liderNombre)}`);
+    const resSol = await fetchAuth(`/api/solicitudes?fecha=${today}`);
     const jsonSol = await resSol.json();
     const solicitudesHoy = jsonSol.ok ? jsonSol.data : [];
 
@@ -2110,14 +2110,15 @@ async function cargarMiEquipoHabitual() {
       let isDisabled = '';
 
       if (sol) {
+        const otroLider = sol.lider_nombre && sol.lider_nombre !== liderNombre ? ` (${sol.lider_nombre})` : '';
         if (sol.estado === 'PENDIENTE') {
-          estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-300">En revisión TI</span>';
+          estadoBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-300">En revisión TI${otroLider}</span>`;
           isDisabled = 'disabled';
         } else if (sol.estado === 'APROBADO') {
-          estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">Aprobado Garita</span>';
+          estadoBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">Aprobado Garita${otroLider}</span>`;
           isDisabled = 'disabled';
         } else if (sol.estado === 'SALIO') {
-          estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300">En Teletrabajo</span>';
+          estadoBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300">En Teletrabajo${otroLider}</span>`;
           isDisabled = 'disabled';
         } else if (sol.estado === 'RETORNADO') {
           estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-100 text-cyan-800 border border-cyan-300">Retornado (Disponible)</span>';
@@ -2221,6 +2222,9 @@ async function autorizarSeleccionadosHabituales() {
     if (json.ok) {
       playSuccessSound();
       showToast(json.message, 'success');
+      if (json.omitidos && json.omitidos.length > 0) {
+        alert('Atención: Algunos asesores no pudieron ser enviados:\n\n' + json.omitidos.join('\n'));
+      }
       cargarMiEquipoHabitual();
       cargarSolicitudesLiderHoy();
       actualizarMetricasGenerales();

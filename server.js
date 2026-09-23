@@ -166,6 +166,57 @@ function resolverNombreLiderOficial(nombre, listaDirectorio = []) {
   return clean;
 }
 
+// Función para sanitizar fechas provenientes de Excel (números de serie SSF o texto)
+function normalizarFechaExcel(rawFecha, fallbackDate) {
+  if (!rawFecha) return fallbackDate;
+
+  // Si viene como número o string puramente numérico (ej. 46287 = 2026-09-22)
+  if (typeof rawFecha === 'number' || (/^\d+$/.test(String(rawFecha).trim()) && Number(rawFecha) > 30000 && Number(rawFecha) < 70000)) {
+    const serial = Number(rawFecha);
+    const d = new Date((serial - 25569) * 86400000);
+    if (!isNaN(d.getTime())) {
+      return d.toISOString().slice(0, 10);
+    }
+  }
+
+  let str = String(rawFecha).trim();
+
+  // Formato con barras o guiones
+  if (str.includes('/') || str.includes('-')) {
+    const separator = str.includes('/') ? '/' : '-';
+    const parts = str.split(separator);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // YYYY-MM-DD
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const d = parseInt(parts[2], 10);
+        if (d > 31 || m > 12 || isNaN(y) || isNaN(m) || isNaN(d)) {
+          return fallbackDate;
+        }
+        return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      } else if (parts[2].length === 4) {
+        // DD/MM/YYYY
+        const d = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        const y = parseInt(parts[2], 10);
+        if (d > 31 || m > 12 || isNaN(y) || isNaN(m) || isNaN(d)) {
+          return fallbackDate;
+        }
+        return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      }
+    }
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [y, m, d] = str.split('-').map(Number);
+    if (d > 31 || m > 12) return fallbackDate;
+    return str;
+  }
+
+  return fallbackDate;
+}
+
 // ==========================================
 // RUTAS DE AUTENTICACIÓN Y ROLES (RBAC)
 // ==========================================
@@ -805,6 +856,14 @@ app.post('/api/lider/autorizar-lote-habitual', async (req, res) => {
       insertados++;
     }
 
+    if (insertados === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: `No se pudo autorizar ningún asesor:\n${omitidos.join('\n')}`,
+        omitidos
+      });
+    }
+
     res.json({
       ok: true,
       insertados,
@@ -849,11 +908,14 @@ app.get('/api/solicitudes', async (req, res) => {
     const params = [];
 
     if (fecha) {
-      if (lider && lider !== 'TODOS') {
+      if (estado === 'PENDIENTE') {
+        query += " AND (fecha_salida = ? OR estado = 'PENDIENTE' OR created_at >= datetime('now', '-48 hours'))";
+        params.push(fecha);
+      } else if (lider && lider !== 'TODOS') {
         query += " AND (fecha_salida = ? OR created_at >= datetime('now', '-24 hours'))";
         params.push(fecha);
       } else {
-        query += ' AND fecha_salida = ?';
+        query += ' AND (fecha_salida = ? OR created_at >= datetime(\'now\', \'-24 hours\'))';
         params.push(fecha);
       }
     }
@@ -1005,15 +1067,8 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
       const modelo = String(row['Modelo'] || row['MODELO'] || row['Marca'] || 'DELL').trim().toUpperCase();
       const tipo = String(row['Tipo de Equipo'] || row['Tipo'] || 'Laptop').trim();
       
-      let fechaSalida = String(row['Fecha Salida'] || row['Fecha'] || today).trim();
-      if (fechaSalida.includes('/')) {
-        const parts = fechaSalida.split('/');
-        if (parts.length === 3) {
-          fechaSalida = parts[2].length === 4 ? `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}` : fechaSalida;
-        }
-      }
-      
-      const fechaRetorno = String(row['Fecha Retorno'] || fechaSalida).trim();
+      const fechaSalida = normalizarFechaExcel(row['Fecha Salida'] || row['Fecha'], today);
+      const fechaRetorno = normalizarFechaExcel(row['Fecha Retorno'], fechaSalida);
       const obs = String(row['Observaciones'] || row['Obs'] || '').trim();
 
       // Normalización inteligente: el líder dueño siempre se asigna con su nombre oficial
@@ -2162,8 +2217,8 @@ app.get('/api/stats', async (req, res) => {
     const today = getFechaLocalEcuador();
     const fecha = req.query.fecha || today;
 
-    const totalHoyRow = await db.prepare('SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ?').get(fecha);
-    const pendientesRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'PENDIENTE'").get(fecha);
+    const totalHoyRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? OR (estado = 'PENDIENTE' AND created_at >= datetime('now', '-48 hours'))").get(fecha);
+    const pendientesRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE estado = 'PENDIENTE' AND (fecha_salida = ? OR created_at >= datetime('now', '-48 hours'))").get(fecha);
     const aprobadasRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'APROBADO'").get(fecha);
     const salieronRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'SALIO'").get(fecha);
     const retornadosRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'RETORNADO'").get(fecha);
