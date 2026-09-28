@@ -1147,6 +1147,7 @@ async function cargarSolicitudesSistemas() {
     }
 
     selectedSolicitudesSistemas.clear();
+    actualizarContadorSeleccionadosSistemas();
     const selectAllCheck = document.getElementById('checkSelectAll');
     if (selectAllCheck) selectAllCheck.checked = false;
 
@@ -1266,16 +1267,31 @@ async function depurarNoSalidosHoy() {
   }
 }
 
+function actualizarContadorSeleccionadosSistemas() {
+  const btnTxtAprobar = document.getElementById('btnTxtAprobarSistemas');
+  const btnTxtRechazar = document.getElementById('btnTxtRechazarSistemas');
+  const count = selectedSolicitudesSistemas.size;
+
+  if (btnTxtAprobar) {
+    btnTxtAprobar.textContent = count > 0 ? `Aprobar Seleccionados (${count})` : 'Aprobar Todo lo Pendiente';
+  }
+  if (btnTxtRechazar) {
+    btnTxtRechazar.textContent = count > 0 ? `Rechazar Seleccionados (${count})` : 'Rechazar Seleccionados';
+  }
+}
+
 function toggleSelectAll(master) {
-  const checkboxes = document.querySelectorAll('.row-checkbox:not(:disabled)');
+  const checkboxes = document.querySelectorAll('#tablaSolicitudesSistemas .row-checkbox:not(:disabled)');
   checkboxes.forEach(cb => {
     cb.checked = master.checked;
+    const id = parseInt(cb.value);
     if (master.checked) {
-      selectedSolicitudesSistemas.add(parseInt(cb.value));
+      selectedSolicitudesSistemas.add(id);
     } else {
-      selectedSolicitudesSistemas.delete(parseInt(cb.value));
+      selectedSolicitudesSistemas.delete(id);
     }
   });
+  actualizarContadorSeleccionadosSistemas();
 }
 
 function toggleSelectFila(cb) {
@@ -1285,6 +1301,7 @@ function toggleSelectFila(cb) {
   } else {
     selectedSolicitudesSistemas.delete(id);
   }
+  actualizarContadorSeleccionadosSistemas();
 }
 
 async function aprobarSolicitudDirecta(id) {
@@ -1383,10 +1400,56 @@ async function aprobarLoteSistemas() {
     if (json.ok) {
       playSuccessSound();
       showToast(json.message, 'success');
+      selectedSolicitudesSistemas.clear();
+      actualizarContadorSeleccionadosSistemas();
       cargarSolicitudesSistemas();
       actualizarMetricasGenerales();
     } else {
       alert(json.error || 'Error al procesar el lote.');
+    }
+  } catch (error) {
+    showToast('Error: ' + error.message, 'error');
+  }
+}
+
+async function rechazarLoteSistemas() {
+  const selectedIds = Array.from(selectedSolicitudesSistemas);
+  if (selectedIds.length === 0) {
+    alert('Por favor marque las casillas de las solicitudes pendientes que desea rechazar.');
+    return;
+  }
+
+  const motivo = prompt(
+    `¿Desea rechazar las ${selectedIds.length} solicitudes seleccionadas?\n\nIngrese el motivo de rechazo:`,
+    'Error del líder al enviar lote / No correspondía teletrabajo'
+  );
+  if (motivo === null) return;
+  if (!motivo.trim()) {
+    alert('Debe especificar un motivo de rechazo para el lote.');
+    return;
+  }
+
+  try {
+    const res = await fetchAuth('/api/solicitudes/rechazar-lote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ids: selectedIds,
+        motivo_rechazo: motivo.trim(),
+        aprobado_por: currentUser ? currentUser.nombre : 'Sistemas'
+      })
+    });
+    const json = await res.json();
+
+    if (json.ok) {
+      playSuccessSound();
+      showToast(json.message, 'info');
+      selectedSolicitudesSistemas.clear();
+      actualizarContadorSeleccionadosSistemas();
+      cargarSolicitudesSistemas();
+      actualizarMetricasGenerales();
+    } else {
+      alert(json.error || 'Error al rechazar el lote.');
     }
   } catch (error) {
     showToast('Error: ' + error.message, 'error');
@@ -2474,6 +2537,16 @@ async function cargarSolicitudesLiderHoy() {
         detalle = item.observaciones || '--';
       }
 
+      let accionBtn = '<span class="text-slate-400 text-xs font-semibold">--</span>';
+      if (item.estado === 'PENDIENTE') {
+        const safeNombre = (item.nombres || '').replace(/'/g, "\\'");
+        accionBtn = `
+          <button onclick="cancelarSolicitudLider(${item.id}, '${safeNombre}')" class="touch-btn px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition inline-flex items-center gap-1 shadow-xs" title="Cancelar envío por error antes de que Sistemas lo apruebe">
+            <i data-lucide="x-circle" class="w-3.5 h-3.5"></i> Cancelar
+          </button>
+        `;
+      }
+
       return `
         <tr class="hover:bg-slate-50 transition">
           <td class="p-3 font-bold text-slate-800">${item.nombres}</td>
@@ -2485,12 +2558,39 @@ async function cargarSolicitudesLiderHoy() {
             ${estadoBadge}
           </td>
           <td class="p-3 text-xs font-semibold text-slate-600">${detalle}</td>
+          <td class="p-3 text-center">${accionBtn}</td>
         </tr>
       `;
     }).join('');
     lucide.createIcons();
   } catch (error) {
     console.error('Error cargando solicitudes líder:', error);
+  }
+}
+
+async function cancelarSolicitudLider(id, nombre) {
+  if (!confirm(`¿Desea cancelar el envío a teletrabajo de ${nombre}?\n\nEl asesor volverá a estar disponible de inmediato en su nómina habitual para que pueda corregir su selección.`)) return;
+
+  try {
+    const liderNombre = currentUser ? currentUser.nombre : '';
+    const res = await fetchAuth(`/api/lider/solicitud/${id}/cancelar`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lider_nombre: liderNombre })
+    });
+    const json = await res.json();
+
+    if (json.ok) {
+      playSuccessSound();
+      showToast(json.message, 'success');
+      cargarSolicitudesLiderHoy();
+      cargarMiEquipoHabitual();
+      actualizarMetricasGenerales();
+    } else {
+      alert(json.error || 'Error al cancelar la solicitud.');
+    }
+  } catch (error) {
+    showToast('Error: ' + error.message, 'error');
   }
 }
 

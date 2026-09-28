@@ -875,6 +875,38 @@ app.post('/api/lider/autorizar-lote-habitual', async (req, res) => {
   }
 });
 
+// Cancelar/Anular una solicitud pendiente propia por parte del Líder (en caso de envío accidental)
+app.delete('/api/lider/solicitud/:id/cancelar', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { lider_nombre } = req.body;
+
+    const sol = await db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
+    if (!sol) {
+      return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
+    }
+
+    if (sol.estado !== 'PENDIENTE') {
+      return res.status(400).json({ 
+        ok: false, 
+        error: `No se puede cancelar una solicitud en estado [${sol.estado}]. Solo se pueden cancelar solicitudes pendientes antes de que Sistemas las apruebe.` 
+      });
+    }
+
+    // Si viene líder especificado, comprobar coincidencia
+    if (lider_nombre && sol.lider_nombre && sol.lider_nombre.toLowerCase() !== String(lider_nombre).toLowerCase().trim()) {
+      return res.status(403).json({ ok: false, error: 'No tiene permiso para cancelar solicitudes de otro líder.' });
+    }
+
+    await db.prepare('DELETE FROM solicitudes WHERE id = ?').run(id);
+    await registrarAuditoria(id, 'CANCELADA_POR_LIDER', lider_nombre || sol.lider_nombre, `El líder canceló el envío accidental a teletrabajo de: ${sol.nombres} (${sol.codigo_maquina})`);
+
+    res.json({ ok: true, message: `Solicitud de ${sol.nombres} cancelada. El asesor vuelve a estar disponible en su nómina habitual.` });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // 1. Obtener Áreas
 app.get('/api/areas', async (req, res) => {
   try {
@@ -1428,6 +1460,49 @@ app.post('/api/solicitudes/aprobar-lote', requireRole(['sistemas']), async (req,
     }
 
     res.json({ ok: true, count, message: `Se aprobaron exitosamente ${count} solicitudes.` });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 9.2. Rechazo Masivo en Lote o por Selección (Sistemas)
+app.post('/api/solicitudes/rechazar-lote', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { ids, fecha, area, lider, motivo_rechazo = 'Rechazado en lote por Sistemas', aprobado_por = 'Sistemas' } = req.body;
+    const now = new Date().toISOString();
+
+    let count = 0;
+    if (Array.isArray(ids) && ids.length > 0) {
+      const stmt = db.prepare(`
+        UPDATE solicitudes 
+        SET estado = 'RECHAZADO', motivo_rechazo = ?, aprobado_por = ?, aprobado_en = ? 
+        WHERE id = ? AND estado IN ('PENDIENTE', 'APROBADO')
+      `);
+      for (const id of ids) {
+        const r = await stmt.run(motivo_rechazo, aprobado_por, now, id);
+        if (r.changes > 0) {
+          await registrarAuditoria(id, 'RECHAZADA_LOTE', aprobado_por, `Rechazo en lote: ${motivo_rechazo}`);
+          count++;
+        }
+      }
+    } else if (fecha) {
+      let query = "UPDATE solicitudes SET estado = 'RECHAZADO', motivo_rechazo = ?, aprobado_por = ?, aprobado_en = ? WHERE fecha_salida = ? AND estado = 'PENDIENTE'";
+      const params = [motivo_rechazo, aprobado_por, now, fecha];
+      if (area && area !== 'TODAS') {
+        query += ' AND area = ?';
+        params.push(area);
+      }
+      if (lider && lider !== 'TODOS') {
+        query += ' AND lider_nombre = ?';
+        params.push(lider);
+      }
+      const stmt = db.prepare(query);
+      const r = await stmt.run(...params);
+      count = r.changes;
+      await registrarAuditoria(null, 'RECHAZO_GLOBAL', aprobado_por, `Rechazadas ${count} solicitudes para ${fecha} (${area || 'Todas'} - ${lider || 'Todos'}). Motivo: ${motivo_rechazo}`);
+    }
+
+    res.json({ ok: true, count, message: `Se rechazaron exitosamente ${count} solicitudes.` });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
