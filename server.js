@@ -26,6 +26,50 @@ function getFechaLocalEcuador(d = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(d);
 }
 
+// ==========================================
+// CANAL REACTIVO EN TIEMPO REAL (SSE - Server-Sent Events)
+// ==========================================
+const sseClients = new Set();
+
+function broadcastEvent(type, data = {}) {
+  const payload = JSON.stringify({ type, data, timestamp: new Date().toISOString() });
+  for (const client of sseClients) {
+    try {
+      client.write(`data: ${payload}\n\n`);
+    } catch (err) {
+      sseClients.delete(client);
+    }
+  }
+}
+
+// Endpoint SSE para clientes conectados
+app.get('/api/events', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+
+  res.write(`data: ${JSON.stringify({ type: 'CONNECTED', data: { status: 'ok' }, timestamp: new Date().toISOString() })}\n\n`);
+  sseClients.add(res);
+
+  // Ping periódico cada 20 segundos para mantener la conexión viva en Render
+  const keepAliveInterval = setInterval(() => {
+    try {
+      res.write(': keep-alive\n\n');
+    } catch (e) {
+      clearInterval(keepAliveInterval);
+      sseClients.delete(res);
+    }
+  }, 20000);
+
+  req.on('close', () => {
+    clearInterval(keepAliveInterval);
+    sseClients.delete(res);
+  });
+});
+
 // Función auxiliar para registrar auditoría
 async function registrarAuditoria(solicitudId, accion, usuario, detalles) {
   try {
@@ -589,6 +633,13 @@ app.post('/api/garita/lideres/movimiento', async (req, res) => {
       `Líder ${lider.nombre_completo || lider.nombre} (${lider.codigo_maquina}) registró ${tipo === 'SALIDA' ? 'SALIDA LIBRE' : 'REINGRESO'} en garita. Estado actual: [${nuevoEstado}].`
     );
 
+    broadcastEvent('LIDER_MOVIMIENTO', {
+      lider: lider.nombre_completo || lider.nombre,
+      codigo: lider.codigo_maquina,
+      tipo,
+      estado_ubicacion: nuevoEstado
+    });
+
     res.json({
       ok: true,
       message: `¡${tipo === 'SALIDA' ? 'Salida libre' : 'Reingreso'} registrado con éxito para el líder ${lider.nombre_completo || lider.nombre}!`,
@@ -864,6 +915,12 @@ app.post('/api/lider/autorizar-lote-habitual', async (req, res) => {
       });
     }
 
+    broadcastEvent('SOLICITUD_CREADA', {
+      lider: lider_nombre,
+      count: insertados,
+      tipo: 'HABITUAL_LOTE'
+    });
+
     res.json({
       ok: true,
       insertados,
@@ -900,6 +957,13 @@ app.delete('/api/lider/solicitud/:id/cancelar', async (req, res) => {
 
     await db.prepare('DELETE FROM solicitudes WHERE id = ?').run(id);
     await registrarAuditoria(id, 'CANCELADA_POR_LIDER', lider_nombre || sol.lider_nombre, `El líder canceló el envío accidental a teletrabajo de: ${sol.nombres} (${sol.codigo_maquina})`);
+
+    broadcastEvent('SOLICITUD_CANCELADA', {
+      id: sol.id,
+      lider: sol.lider_nombre,
+      nombres: sol.nombres,
+      codigo: sol.codigo_maquina
+    });
 
     res.json({ ok: true, message: `Solicitud de ${sol.nombres} cancelada. El asesor vuelve a estar disponible en su nómina habitual.` });
   } catch (error) {
@@ -1051,6 +1115,14 @@ app.post('/api/solicitudes', async (req, res) => {
       );
     }
 
+    broadcastEvent('SOLICITUD_CREADA', {
+      id: result.lastInsertRowid,
+      lider: (lider_nombre || '').trim(),
+      nombres: nombres.trim(),
+      codigo: codigo_maquina.trim().toUpperCase(),
+      count: 1
+    });
+
     res.json({ ok: true, id: result.lastInsertRowid, message: 'Solicitud registrada exitosamente.' });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -1143,6 +1215,14 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
 
     fs.unlinkSync(filePath);
 
+    if (insertados > 0) {
+      broadcastEvent('SOLICITUD_CREADA', {
+        lider: lider_default || 'Excel',
+        count: insertados,
+        tipo: 'EXCEL'
+      });
+    }
+
     res.json({
       ok: true,
       insertados,
@@ -1221,7 +1301,17 @@ app.patch('/api/solicitudes/:id/aprobar', requireRole(['sistemas']), async (req,
       return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
     }
 
+    const sol = await db.prepare('SELECT lider_nombre, nombres, codigo_maquina FROM solicitudes WHERE id = ?').get(id);
     await registrarAuditoria(id, 'APROBADA', aprobado_por, 'Autorizado formalmente por Sistemas');
+
+    broadcastEvent('SOLICITUD_APROBADA', {
+      id: parseInt(id),
+      lider: sol ? sol.lider_nombre : '',
+      nombres: sol ? sol.nombres : '',
+      codigo: sol ? sol.codigo_maquina : '',
+      aprobado_por
+    });
+
     res.json({ ok: true, message: 'Solicitud aprobada correctamente.' });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -1246,7 +1336,18 @@ app.patch('/api/solicitudes/:id/rechazar', requireRole(['sistemas']), async (req
       return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
     }
 
+    const sol = await db.prepare('SELECT lider_nombre, nombres, codigo_maquina FROM solicitudes WHERE id = ?').get(id);
     await registrarAuditoria(id, 'RECHAZADA', aprobado_por, `Motivo: ${motivo_rechazo}`);
+
+    broadcastEvent('SOLICITUD_RECHAZADA', {
+      id: parseInt(id),
+      lider: sol ? sol.lider_nombre : '',
+      nombres: sol ? sol.nombres : '',
+      codigo: sol ? sol.codigo_maquina : '',
+      motivo: motivo_rechazo,
+      aprobado_por
+    });
+
     res.json({ ok: true, message: 'Solicitud rechazada.' });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -1280,6 +1381,14 @@ app.patch('/api/solicitudes/:id/anular', requireRole(['sistemas']), async (req, 
     await stmt.run(obsFinal, id);
 
     await registrarAuditoria(id, 'ANULADA_NO_SALIO', operador, `Salida anulada para ${solicitud.nombres} (${solicitud.codigo_maquina}). Motivo: ${motivo}`);
+
+    broadcastEvent('SOLICITUD_ANULADA', {
+      id: parseInt(id),
+      nombres: solicitud.nombres,
+      codigo: solicitud.codigo_maquina,
+      lider: solicitud.lider_nombre,
+      operador
+    });
 
     res.json({
       ok: true,
@@ -1412,6 +1521,8 @@ app.post('/api/solicitudes/depurar-no-salidos', requireRole(['sistemas']), async
 
     await registrarAuditoria(null, 'DEPURACION_CIERRE_TURNO', operador, `Se anularon ${count} solicitudes aprobadas no retiradas en la fecha ${targetFecha}`);
 
+    broadcastEvent('TURNO_DEPURADO', { count, targetFecha });
+
     res.json({
       ok: true,
       depurados: count,
@@ -1459,6 +1570,13 @@ app.post('/api/solicitudes/aprobar-lote', requireRole(['sistemas']), async (req,
       await registrarAuditoria(null, 'APROBACION_GLOBAL', aprobado_por, `Aprobadas ${count} solicitudes para ${fecha} (${area || 'Todas'} - ${lider || 'Todos'})`);
     }
 
+    broadcastEvent('SOLICITUD_APROBADA', {
+      count,
+      ids: Array.isArray(ids) ? ids : [],
+      lider: lider || '',
+      aprobado_por
+    });
+
     res.json({ ok: true, count, message: `Se aprobaron exitosamente ${count} solicitudes.` });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -1501,6 +1619,14 @@ app.post('/api/solicitudes/rechazar-lote', requireRole(['sistemas']), async (req
       count = r.changes;
       await registrarAuditoria(null, 'RECHAZO_GLOBAL', aprobado_por, `Rechazadas ${count} solicitudes para ${fecha} (${area || 'Todas'} - ${lider || 'Todos'}). Motivo: ${motivo_rechazo}`);
     }
+
+    broadcastEvent('SOLICITUD_RECHAZADA', {
+      count,
+      ids: Array.isArray(ids) ? ids : [],
+      lider: lider || '',
+      motivo: motivo_rechazo,
+      aprobado_por
+    });
 
     res.json({ ok: true, count, message: `Se rechazaron exitosamente ${count} solicitudes.` });
   } catch (error) {
@@ -1718,6 +1844,15 @@ app.post('/api/garita/despachar', requireRole(['garita', 'sistemas']), async (re
       `Salida registrada exitosamente. Asesor: ${solicitud.nombres}, Equipo: ${solicitud.codigo_maquina} (${solicitud.modelo})`
     );
 
+    broadcastEvent('EQUIPO_DESPACHADO', {
+      id: solicitud.id,
+      nombres: solicitud.nombres,
+      codigo: solicitud.codigo_maquina,
+      lider: solicitud.lider_nombre,
+      guardia: guardia_nombre,
+      hora: now
+    });
+
     res.json({
       ok: true,
       message: '¡Salida confirmada y registrada en el sistema!',
@@ -1843,6 +1978,15 @@ app.post('/api/garita/retornar', async (req, res) => {
       retornado_por,
       `Equipo [${solicitud.codigo_maquina}] retornado a oficina por el asesor ${solicitud.nombres}. Pasa a estado PRESENCIAL.`
     );
+
+    broadcastEvent('EQUIPO_RETORNADO', {
+      id: solicitud.id,
+      nombres: solicitud.nombres,
+      codigo: solicitud.codigo_maquina,
+      lider: solicitud.lider_nombre,
+      guardia: retornado_por,
+      hora: now
+    });
 
     res.json({
       ok: true,

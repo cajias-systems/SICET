@@ -164,6 +164,12 @@
             <div class="h-8 w-px bg-slate-800 hidden md:block"></div>
 
             <div class="flex items-center gap-3">
+              <!-- Indicador de reactividad en tiempo real (SSE) -->
+              <div id="indicadorTiempoReal" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs select-none cursor-default" title="Conectado en tiempo real">
+                <span id="dotTiempoReal" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span id="textoTiempoReal" class="text-[10px] font-black uppercase text-emerald-400 tracking-wider">EN VIVO</span>
+              </div>
+
               <div class="flex items-center gap-2 text-xs bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
                 <i data-lucide="user-check" class="w-4 h-4 text-emerald-400"></i>
                 <span id="appUsuarioNombre" class="font-black text-slate-200">Usuario</span>

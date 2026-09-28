@@ -59,6 +59,11 @@ function playLeaderSound() {
   setTimeout(() => playTone(1174.66, 'sine', 0.3), 320);
 }
 
+function playNotificationChime() {
+  playTone(880, 'sine', 0.12);
+  setTimeout(() => playTone(1046.5, 'sine', 0.2), 110);
+}
+
 // Wrapper para llamadas HTTP incluyendo rol en cabecera y validación robusta contra respuestas HTML (502/503/404)
 async function fetchAuth(url, options = {}) {
   const headers = options.headers || {};
@@ -74,6 +79,263 @@ async function fetchAuth(url, options = {}) {
     throw new Error('La respuesta del servidor no tiene formato JSON válido.');
   }
   return res;
+}
+
+// =========================================================================
+// SISTEMA DE REACTIVIDAD EN TIEMPO REAL (SSE - SERVER SENT EVENTS)
+// =========================================================================
+let realtimeEventSource = null;
+let reconnectIntervalTimer = null;
+let fallbackHeartbeatTimer = null;
+
+function iniciarSuscripcionEventosTiempoReal() {
+  detenerSuscripcionEventosTiempoReal();
+  actualizarIndicadorTiempoReal('conectando');
+
+  try {
+    realtimeEventSource = new EventSource('/api/events');
+
+    realtimeEventSource.onopen = () => {
+      console.log('⚡ Conectado al canal de eventos en tiempo real (SSE)');
+      actualizarIndicadorTiempoReal('en-vivo');
+    };
+
+    realtimeEventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        procesarEventoTiempoReal(payload);
+      } catch (err) {
+        console.warn('Error al procesar evento SSE:', err);
+      }
+    };
+
+    realtimeEventSource.onerror = () => {
+      actualizarIndicadorTiempoReal('desconectado');
+      try { realtimeEventSource.close(); } catch (e) {}
+      realtimeEventSource = null;
+
+      if (!reconnectIntervalTimer && currentUser) {
+        reconnectIntervalTimer = setTimeout(() => {
+          reconnectIntervalTimer = null;
+          iniciarSuscripcionEventosTiempoReal();
+        }, 3000);
+      }
+    };
+  } catch (err) {
+    console.error('Error iniciando SSE:', err);
+    actualizarIndicadorTiempoReal('desconectado');
+  }
+
+  // Heartbeat de seguridad: cada 20s verifica y refresca métricas por si la red tuvo micro-cortes
+  if (!fallbackHeartbeatTimer) {
+    fallbackHeartbeatTimer = setInterval(() => {
+      if (currentUser) {
+        actualizarMetricasGenerales();
+      }
+    }, 20000);
+  }
+}
+
+function detenerSuscripcionEventosTiempoReal() {
+  if (realtimeEventSource) {
+    try { realtimeEventSource.close(); } catch (e) {}
+    realtimeEventSource = null;
+  }
+  if (reconnectIntervalTimer) {
+    clearTimeout(reconnectIntervalTimer);
+    reconnectIntervalTimer = null;
+  }
+  if (fallbackHeartbeatTimer) {
+    clearInterval(fallbackHeartbeatTimer);
+    fallbackHeartbeatTimer = null;
+  }
+  actualizarIndicadorTiempoReal('desconectado');
+}
+
+function actualizarIndicadorTiempoReal(estado) {
+  const ind = document.getElementById('indicadorTiempoReal');
+  const dot = document.getElementById('dotTiempoReal');
+  const texto = document.getElementById('textoTiempoReal');
+  if (!ind || !dot || !texto) return;
+
+  if (estado === 'en-vivo') {
+    dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+    texto.className = 'text-[10px] font-black uppercase text-emerald-400 tracking-wider';
+    texto.textContent = 'EN VIVO';
+    ind.title = 'Conectado en tiempo real. Todos los cambios se reflejan al instante.';
+  } else if (estado === 'conectando') {
+    dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
+    texto.className = 'text-[10px] font-black uppercase text-amber-400 tracking-wider';
+    texto.textContent = 'CONECTANDO...';
+    ind.title = 'Estableciendo sincronización en tiempo real...';
+  } else {
+    dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+    texto.className = 'text-[10px] font-black uppercase text-slate-400 tracking-wider';
+    texto.textContent = 'RECONECTANDO';
+    ind.title = 'Reconectando con el servidor...';
+  }
+}
+
+function procesarEventoTiempoReal(payload) {
+  if (!payload || !payload.type) return;
+  const { type, data } = payload;
+  console.log('⚡ Evento en tiempo real recibido:', type, data);
+
+  if (!currentUser) return;
+  const rol = currentUser.rol;
+
+  switch (type) {
+    case 'SOLICITUD_CREADA':
+      if (rol === 'sistemas') {
+        playNotificationChime();
+        const quien = data.lider_nombre || data.lider || 'Un líder';
+        const txt = data.total 
+          ? `🔔 ${quien} envió ${data.total} solicitudes para teletrabajo.` 
+          : `🔔 ${quien} envió solicitud para ${data.asesor || 'un asesor'}.`;
+        showToast(txt, 'info');
+        cargarSolicitudesSistemas();
+        actualizarMetricasGenerales();
+      } else if (rol === 'lider') {
+        if (data.lider_nombre === currentUser.nombre || data.lider === currentUser.nombre) {
+          cargarSolicitudesLiderHoy();
+          cargarMiEquipoHabitual();
+          actualizarMetricasGenerales();
+        }
+      }
+      break;
+
+    case 'SOLICITUD_CANCELADA':
+      if (rol === 'sistemas') {
+        const quien = data.lider || 'El líder';
+        showToast(`ℹ️ ${quien} canceló la solicitud de ${data.asesor || 'un asesor'}.`, 'warning');
+        cargarSolicitudesSistemas();
+        actualizarMetricasGenerales();
+      } else if (rol === 'garita') {
+        cargarTodoGarita();
+      } else if (rol === 'lider') {
+        if (data.lider === currentUser.nombre) {
+          cargarSolicitudesLiderHoy();
+          cargarMiEquipoHabitual();
+          actualizarMetricasGenerales();
+        }
+      }
+      break;
+
+    case 'SOLICITUD_APROBADA':
+      if (rol === 'garita') {
+        playNotificationChime();
+        const cant = data.total || (data.solicitudes ? data.solicitudes.length : 1);
+        showToast(`✅ Sistemas autorizó ${cant > 1 ? cant + ' laptops' : (data.asesor ? 'salida de ' + data.asesor : 'laptop')} para teletrabajo`, 'success');
+        cargarTodoGarita();
+        actualizarMetricasGenerales();
+      } else if (rol === 'lider') {
+        const esParaMi = (data.lider === currentUser.nombre) || 
+          (data.solicitudes && data.solicitudes.some(s => s.lider_nombre === currentUser.nombre));
+        if (esParaMi) {
+          playSuccessSound();
+          showToast(`🎉 ¡Sistemas APROBÓ las solicitudes de su equipo!`, 'success');
+          cargarSolicitudesLiderHoy();
+          cargarMiEquipoHabitual();
+          actualizarMetricasGenerales();
+        }
+      } else if (rol === 'sistemas') {
+        cargarSolicitudesSistemas();
+        actualizarMetricasGenerales();
+      }
+      break;
+
+    case 'SOLICITUD_RECHAZADA':
+      if (rol === 'lider') {
+        const esParaMi = (data.lider === currentUser.nombre);
+        if (esParaMi) {
+          playErrorSound();
+          showToast(`❌ Sistemas rechazó solicitud: ${data.motivo || 'Ver observaciones'}`, 'error');
+          cargarSolicitudesLiderHoy();
+          cargarMiEquipoHabitual();
+          actualizarMetricasGenerales();
+        }
+      } else if (rol === 'garita') {
+        cargarTodoGarita();
+      } else if (rol === 'sistemas') {
+        cargarSolicitudesSistemas();
+        actualizarMetricasGenerales();
+      }
+      break;
+
+    case 'SOLICITUD_ANULADA':
+    case 'TURNO_DEPURADO':
+      if (rol === 'sistemas') {
+        cargarSolicitudesSistemas();
+        actualizarMetricasGenerales();
+      } else if (rol === 'garita') {
+        cargarTodoGarita();
+      } else if (rol === 'lider') {
+        cargarSolicitudesLiderHoy();
+        cargarMiEquipoHabitual();
+        actualizarMetricasGenerales();
+      }
+      break;
+
+    case 'EQUIPO_DESPACHADO':
+      if (rol === 'sistemas') {
+        showToast(`📤 Garita despachó equipo ${data.codigo || ''} (${data.asesor || ''})`, 'info');
+        cargarSolicitudesSistemas();
+        actualizarMetricasGenerales();
+        const elRet = document.getElementById('modulo-retornos');
+        if (elRet && !elRet.classList.contains('hidden')) cargarEquiposFuera();
+      } else if (rol === 'garita') {
+        cargarTodoGarita();
+        actualizarMetricasGenerales();
+      } else if (rol === 'lider') {
+        if (data.lider === currentUser.nombre) {
+          showToast(`🚀 Equipo ${data.codigo || ''} de ${data.asesor || 'su asesor'} ha salido por Garita`, 'info');
+          cargarSolicitudesLiderHoy();
+          cargarMiEquipoHabitual();
+          actualizarMetricasGenerales();
+        }
+      }
+      break;
+
+    case 'EQUIPO_RETORNADO':
+      if (rol === 'sistemas') {
+        showToast(`📥 Equipo ${data.codigo || ''} reingresó a oficinas (${data.asesor || ''})`, 'info');
+        actualizarMetricasGenerales();
+        const elRet = document.getElementById('modulo-retornos');
+        if (elRet && !elRet.classList.contains('hidden')) {
+          cargarEquiposFuera();
+          cargarRetornosHoy();
+        }
+      } else if (rol === 'garita') {
+        cargarTodoGarita();
+        actualizarMetricasGenerales();
+        const elRet = document.getElementById('modulo-retornos');
+        if (elRet && !elRet.classList.contains('hidden')) {
+          cargarEquiposFuera();
+          cargarRetornosHoy();
+        }
+      } else if (rol === 'lider') {
+        if (data.lider === currentUser.nombre) {
+          showToast(`🏢 Equipo ${data.codigo || ''} de ${data.asesor || 'su asesor'} retornó a oficinas`, 'info');
+          cargarSolicitudesLiderHoy();
+          cargarMiEquipoHabitual();
+          actualizarMetricasGenerales();
+        }
+      }
+      break;
+
+    case 'LIDER_MOVIMIENTO':
+      actualizarMetricasGenerales();
+      const elLid = document.getElementById('modulo-lideres-equipos');
+      if (elLid && !elLid.classList.contains('hidden')) {
+        cargarLideresEquipos();
+        cargarBitacoraMovimientosLideres();
+      }
+      break;
+
+    default:
+      actualizarMetricasGenerales();
+      break;
+  }
 }
 
 // =========================================================================
@@ -231,6 +493,7 @@ async function ejecutarLogin(e) {
 function ejecutarLogout() {
   if (!confirm('¿Desea cerrar la sesión actual?')) return;
   if (window.liderInterval) clearInterval(window.liderInterval);
+  detenerSuscripcionEventosTiempoReal();
   sessionStorage.removeItem('salidas_usuario_activo');
   currentUser = null;
   mostrarLogin();
@@ -316,6 +579,7 @@ function mostrarAplicacion() {
     }, 20000);
   }
 
+  iniciarSuscripcionEventosTiempoReal();
   actualizarMetricasGenerales();
   lucide.createIcons();
 }
@@ -3138,31 +3402,41 @@ function getBadgeClass(estado) {
   }
 }
 
+let toastTimer = null;
 function showToast(message, type = 'success') {
   const toast = document.getElementById('toast');
   const toastMsg = document.getElementById('toastMessage');
   const toastIcon = document.getElementById('toastIcon');
+  if (!toast || !toastMsg || !toastIcon) return;
+
+  if (toastTimer) {
+    clearTimeout(toastTimer);
+    toastTimer = null;
+  }
 
   toastMsg.textContent = message;
-  toast.className = 'fixed bottom-5 right-5 z-50 transition-all duration-300 flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl text-sm font-bold text-white pointer-events-none ';
+  toast.className = 'fixed bottom-5 right-5 z-50 transition-all duration-300 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-sm font-bold text-white pointer-events-none ';
 
   if (type === 'success') {
-    toast.className += 'bg-emerald-600';
-    toastIcon.setAttribute('data-lucide', 'check-circle');
+    toast.className += 'bg-emerald-600 border border-emerald-400/40 shadow-emerald-950/40';
+    toastIcon.setAttribute('data-lucide', 'check-circle-2');
   } else if (type === 'error') {
-    toast.className += 'bg-rose-600';
+    toast.className += 'bg-rose-600 border border-rose-400/40 shadow-rose-950/40';
     toastIcon.setAttribute('data-lucide', 'alert-octagon');
+  } else if (type === 'warning') {
+    toast.className += 'bg-amber-600 border border-amber-400/40 shadow-amber-950/40 text-amber-50';
+    toastIcon.setAttribute('data-lucide', 'alert-triangle');
   } else {
-    toast.className += 'bg-slate-800';
-    toastIcon.setAttribute('data-lucide', 'info');
+    toast.className += 'bg-blue-600 border border-blue-400/40 shadow-blue-950/40';
+    toastIcon.setAttribute('data-lucide', 'bell-ring');
   }
 
   lucide.createIcons();
   toast.classList.remove('translate-y-24', 'opacity-0');
 
-  setTimeout(() => {
+  toastTimer = setTimeout(() => {
     toast.classList.add('translate-y-24', 'opacity-0');
-  }, 3500);
+  }, 4500);
 }
 
 // =============================================================
