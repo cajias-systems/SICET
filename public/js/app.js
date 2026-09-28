@@ -1235,11 +1235,11 @@ async function anularSolicitudSistemas(id, asesorNombre) {
   }
 }
 
-// Depuración masiva de todas las solicitudes aprobadas/pendientes que nunca salieron hoy
+// Depuración masiva de solicitudes aprobadas antiguas que nunca salieron (cierre de turno)
 async function depurarNoSalidosHoy() {
   const fecha = document.getElementById('filtroSistemasFecha')?.value || getFechaLocalEcuador();
 
-  const confirmacion = confirm(`¿Desea limpiar y marcar como "NO SALIÓ" todas las solicitudes de la fecha ${fecha} que quedaron aprobadas pero que los asesores NUNCA fueron a retirar a garita?\n\nEsto liberará automáticamente las computadoras y limpiará el listado.`);
+  const confirmacion = confirm(`¿Desea ejecutar la depuración de cierre de turno para la fecha ${fecha}?\n\n⚠️ NOTA IMPORTANTE:\n- Solo afectará solicitudes APROBADAS con más de 3 horas de emisión que nunca fueron retiradas en garita.\n- Las autorizaciones recientes (<3 horas) NO se anularán.\n- Las solicitudes PENDIENTES NO se tocarán.`);
   if (!confirmacion) return;
 
   try {
@@ -1453,31 +1453,6 @@ function abrirHojaOficialImpresion() {
   const fecha = document.getElementById('filtroSistemasFecha')?.value || '';
   const lider = document.getElementById('filtroSistemasLider')?.value || 'TODOS';
   const url = `/api/hoja-control?fecha=${fecha}&lider=${encodeURIComponent(lider)}`;
-  window.open(url, '_blank');
-}
-
-async function depurarNoSalidosHoy() {
-  const fecha = document.getElementById('filtroSistemasFecha')?.value || getFechaLocalEcuador();
-  if (!confirm(`¿Desea depurar todos los asesores aprobados para la fecha ${fecha} que NUNCA salieron por garita?\n\nPasarán a estado "NO RETIRÓ" para no congestionar garita ni reportes.`)) return;
-
-  try {
-    const res = await fetchAuth('/api/solicitudes/depurar-no-salidos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fecha, operador: currentUser ? currentUser.nombre : 'Sistemas' })
-    });
-    const json = await res.json();
-    if (json.ok) {
-      playSuccessSound();
-      showToast(json.message, 'success');
-      cargarSolicitudesSistemas();
-      actualizarMetricasGenerales();
-    } else {
-      alert(json.error || 'Error al depurar solicitudes.');
-    }
-  } catch (e) {
-    showToast('Error: ' + e.message, 'error');
-  }
 }
 
 // GESTIÓN DEL DIRECTORIO OFICIAL DE LÍDERES

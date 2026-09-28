@@ -1350,32 +1350,40 @@ app.put('/api/solicitudes/:id', requireRole(['sistemas']), async (req, res) => {
   }
 });
 
-// 8.3. Depuración Masiva al Final del Día (Quitar todos los aprobados que no salieron)
+// 8.3. Depuración Masiva al Final del Día (Quitar solo aprobados antiguos que no salieron)
 app.post('/api/solicitudes/depurar-no-salidos', requireRole(['sistemas']), async (req, res) => {
   try {
-    const { fecha, operador = 'Sistemas' } = req.body;
-    const targetFecha = fecha || getFechaLocalEcuador();
+    const { fecha, operador = 'Sistemas', forzar_recientes = false } = req.body;
+    const today = getFechaLocalEcuador();
+    const targetFecha = fecha || today;
 
-    // Seleccionar todos los registros de la fecha que quedaron en APROBADO o PENDIENTE pero nunca salieron
-    const stmt = db.prepare(`
+    // NUNCA tocar solicitudes en estado PENDIENTE (los pendientes esperan revisión de Sistemas, no son abandono en garita)
+    // Para la fecha de hoy, SOLO depurar solicitudes aprobadas con más de 3 horas de antigüedad, para evitar anular autorizaciones recién emitidas
+    let query = `
       UPDATE solicitudes 
       SET estado = 'NO_SALIO', 
           observaciones = CASE 
-            WHEN observaciones IS NULL OR observaciones = '' THEN 'ANULADO AL CIERRE DE TURNO: No retiró el equipo'
+            WHEN observaciones IS NULL OR observaciones = '' THEN 'ANULADO AL CIERRE DE TURNO: No retiró el equipo en garita'
             ELSE observaciones || ' | ANULADO AL CIERRE DE TURNO'
           END
-      WHERE fecha_salida = ? AND estado IN ('APROBADO', 'PENDIENTE')
-    `);
+      WHERE fecha_salida = ? AND estado = 'APROBADO'
+    `;
+    const params = [targetFecha];
 
-    const result = await stmt.run(targetFecha);
+    if (targetFecha === today && !forzar_recientes) {
+      query += " AND (aprobado_en <= datetime('now', '-3 hours') OR (aprobado_en IS NULL AND created_at <= datetime('now', '-3 hours')))";
+    }
+
+    const stmt = db.prepare(query);
+    const result = await stmt.run(...params);
     const count = result.changes;
 
-    await registrarAuditoria(null, 'DEPURACION_CIERRE_TURNO', operador, `Se anularon ${count} solicitudes aprobadas/pendientes que no fueron retiradas en la fecha ${targetFecha}`);
+    await registrarAuditoria(null, 'DEPURACION_CIERRE_TURNO', operador, `Se anularon ${count} solicitudes aprobadas no retiradas en la fecha ${targetFecha}`);
 
     res.json({
       ok: true,
       depurados: count,
-      message: `Se limpiaron ${count} solicitudes no retiradas de la fecha ${targetFecha}. Los guardias ya no verán pendientes y los equipos quedan liberados.`
+      message: `Se limpiaron ${count} solicitudes aprobadas no retiradas de la fecha ${targetFecha}. Las autorizaciones recientes (<3 horas) no fueron afectadas.`
     });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
