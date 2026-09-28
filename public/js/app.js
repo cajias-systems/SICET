@@ -1391,6 +1391,65 @@ function debounceCargarSistemas() {
   }, 300);
 }
 
+function filtrarVistaRapidaSistemas(tipo) {
+  const selectEstado = document.getElementById('filtroSistemasEstado');
+  const inputFecha = document.getElementById('filtroSistemasFecha');
+  const today = getFechaLocalEcuador();
+
+  // Resetear estilos de píldoras
+  const pillP = document.getElementById('pillSistemasPendientes');
+  const pillA = document.getElementById('pillSistemasAprobados');
+  const pillS = document.getElementById('pillSistemasSalieron');
+  const pillT = document.getElementById('pillSistemasTodasFechas');
+
+  [pillP, pillA, pillS, pillT].forEach(p => {
+    if (p) {
+      p.className = 'touch-btn px-3.5 py-1.5 rounded-xl font-bold text-xs transition bg-slate-100 text-slate-700 hover:bg-slate-200 flex items-center gap-1.5';
+    }
+  });
+
+  if (tipo === 'pendientes') {
+    if (pillP) pillP.className = 'touch-btn px-3.5 py-1.5 rounded-xl font-black text-xs transition bg-amber-500 text-slate-950 shadow-sm flex items-center gap-1.5';
+    if (selectEstado) selectEstado.value = 'PENDIENTE';
+    if (inputFecha) inputFecha.value = today;
+  } else if (tipo === 'aprobados') {
+    if (pillA) pillA.className = 'touch-btn px-3.5 py-1.5 rounded-xl font-black text-xs transition bg-emerald-600 text-white shadow-sm flex items-center gap-1.5';
+    if (selectEstado) selectEstado.value = 'APROBADO';
+    if (inputFecha) inputFecha.value = ''; // Permite ver todas las aprobadas sin que una fecha distinta las oculte
+  } else if (tipo === 'salieron') {
+    if (pillS) pillS.className = 'touch-btn px-3.5 py-1.5 rounded-xl font-black text-xs transition bg-blue-600 text-white shadow-sm flex items-center gap-1.5';
+    if (selectEstado) selectEstado.value = 'SALIO';
+    if (inputFecha) inputFecha.value = '';
+  } else if (tipo === 'todas_fechas') {
+    if (pillT) pillT.className = 'touch-btn px-3.5 py-1.5 rounded-xl font-black text-xs transition bg-purple-600 text-white shadow-sm flex items-center gap-1.5';
+    if (selectEstado) selectEstado.value = 'TODOS';
+    if (inputFecha) inputFecha.value = '';
+  }
+
+  cargarSolicitudesSistemas();
+}
+
+async function cambiarFechaSalidaAHoy(id) {
+  if (!confirm('¿Desea corregir la fecha programada de salida de este equipo al día de HOY?\n\nAl cambiar a hoy, el equipo quedará inmediatamente disponible en Garita para su despacho.')) return;
+
+  try {
+    const res = await fetchAuth(`/api/solicitudes/${id}/cambiar-fecha-hoy`, {
+      method: 'PATCH'
+    });
+    const json = await res.json();
+    if (json.ok) {
+      playSuccessSound();
+      showToast(json.message, 'success');
+      cargarSolicitudesSistemas();
+      actualizarMetricasGenerales();
+    } else {
+      alert(json.error || 'Error al corregir la fecha.');
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
 async function cargarSolicitudesSistemas() {
   const fecha = document.getElementById('filtroSistemasFecha')?.value || '';
   const lider = document.getElementById('filtroSistemasLider')?.value || 'TODOS';
@@ -1415,16 +1474,23 @@ async function cargarSolicitudesSistemas() {
     const selectAllCheck = document.getElementById('checkSelectAll');
     if (selectAllCheck) selectAllCheck.checked = false;
 
+    const today = getFechaLocalEcuador();
+
     tbody.innerHTML = json.data.map(item => {
       const badgeClass = getBadgeClass(item.estado);
       const isPendiente = item.estado === 'PENDIENTE';
+      const esFechaFutura = (item.fecha_salida && item.fecha_salida > today);
+      const esHoy = (item.fecha_salida === today);
 
       return `
-        <tr class="hover:bg-slate-50 transition" id="fila-solicitud-${item.id}">
+        <tr class="hover:bg-slate-50 transition ${esFechaFutura ? 'bg-amber-50/50' : ''}" id="fila-solicitud-${item.id}">
           <td class="p-4">
             <input type="checkbox" value="${item.id}" ${isPendiente ? '' : 'disabled'} onchange="toggleSelectFila(this)" class="row-checkbox rounded text-blue-600">
           </td>
-          <td class="p-4 font-black text-slate-900">${item.nombres}</td>
+          <td class="p-4">
+            <div class="font-black text-slate-900">${item.nombres}</div>
+            ${item.observaciones ? `<div class="text-[11px] text-slate-500 italic mt-0.5 line-clamp-1" title="${item.observaciones}">${item.observaciones}</div>` : ''}
+          </td>
           <td class="p-4 font-mono text-xs">${item.cedula}</td>
           <td class="p-4 text-xs font-semibold text-slate-700">${item.lider_nombre} <span class="text-slate-400">(${item.area})</span></td>
           <td class="p-4 font-mono text-xs font-bold text-blue-700">
@@ -1432,11 +1498,54 @@ async function cargarSolicitudesSistemas() {
             ${item.codigo_maquina_anterior ? `<div class="text-[10px] text-amber-600 font-normal">Ant: ${item.codigo_maquina_anterior}</div>` : ''}
           </td>
           <td class="p-4 text-xs font-bold">${item.modelo || 'DELL'}</td>
-          <td class="p-4 text-xs text-slate-600">${item.fecha_salida}</td>
+          <td class="p-4 text-xs">
+            ${esHoy ? `
+              <span class="font-bold text-slate-900">${item.fecha_salida}</span>
+              <span class="ml-1 text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-black border border-emerald-300">Hoy</span>
+            ` : esFechaFutura ? `
+              <div class="inline-flex flex-col gap-1 items-start">
+                <span class="font-black text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded text-[11px] flex items-center gap-1">
+                  ⚠️ ${item.fecha_salida} (Futuro)
+                </span>
+                <button type="button" onclick="cambiarFechaSalidaAHoy(${item.id})" class="text-[10px] font-black text-blue-700 hover:text-blue-900 underline bg-white border border-blue-200 px-1.5 py-0.5 rounded shadow-sm transition" title="Corregir fecha a hoy para que aparezca en Garita de inmediato">
+                  📅 Pasar a Hoy
+                </button>
+              </div>
+            ` : `
+              <span class="text-slate-600 font-medium">${item.fecha_salida}</span>
+            `}
+          </td>
           <td class="p-4 text-center">
             <span class="px-2.5 py-0.5 rounded-full text-xs font-black uppercase ${badgeClass}">
               ${item.estado}
             </span>
+            ${item.estado === 'APROBADO' ? `
+              <div class="mt-1">
+                ${!esFechaFutura ? `
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Visible para el guardia en Garita">
+                    <i data-lucide="shield-check" class="w-3 h-3 text-emerald-600"></i> Listo en Garita
+                  </span>
+                ` : `
+                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300" title="No aparece en Garita porque la fecha es futura. Presione 'Pasar a Hoy' para corregirla.">
+                    <i data-lucide="clock-alert" class="w-3 h-3 text-amber-600"></i> Oculto en Garita (Futuro)
+                  </span>
+                `}
+              </div>
+            ` : ''}
+            ${item.estado === 'SALIO' ? `
+              <div class="mt-1">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                  <i data-lucide="log-out" class="w-3 h-3"></i> En Teletrabajo
+                </span>
+              </div>
+            ` : ''}
+            ${item.estado === 'RETORNADO' ? `
+              <div class="mt-1">
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
+                  <i data-lucide="corner-down-left" class="w-3 h-3"></i> En Oficina
+                </span>
+              </div>
+            ` : ''}
           </td>
           <td class="p-4 text-right space-x-1 whitespace-nowrap">
             ${isPendiente ? `
@@ -1451,6 +1560,12 @@ async function cargarSolicitudesSistemas() {
             ${(item.estado === 'APROBADO' || item.estado === 'PENDIENTE') ? `
               <button onclick="anularSolicitudSistemas(${item.id}, '${item.nombres}')" class="touch-btn px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-lg text-xs font-bold" title="Quitar de la lista porque el asesor desistió y no salió">
                 🚫 No Salió
+              </button>
+            ` : ''}
+
+            ${esFechaFutura ? `
+              <button onclick="cambiarFechaSalidaAHoy(${item.id})" class="touch-btn px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-900 rounded-lg text-xs font-bold" title="Pasar la fecha de salida a hoy para que Garita pueda despachar de inmediato">
+                📅 Pasar a Hoy
               </button>
             ` : ''}
             

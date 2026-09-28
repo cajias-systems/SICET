@@ -1063,15 +1063,21 @@ app.post('/api/solicitudes', async (req, res) => {
       observaciones
     } = req.body;
 
-    if (!cedula || !nombres || !area || !codigo_maquina || !fecha_salida) {
+    const today = getFechaLocalEcuador();
+    const userRole = req.headers['x-user-role'] || 'lider';
+    // Para líderes, la fecha de salida siempre es el día de hoy (no agendamiento a futuro)
+    const fechaSalidaFinal = (userRole === 'sistemas' && fecha_salida) ? fecha_salida : today;
+    const fechaRetornoFinal = fecha_retorno_estimada || fechaSalidaFinal;
+
+    if (!cedula || !nombres || !area || !codigo_maquina) {
       return res.status(400).json({
         ok: false,
-        error: 'Cédula, Nombres, Área, Código de Máquina y Fecha de Salida son obligatorios.'
+        error: 'Cédula, Nombres, Área y Código de Máquina son obligatorios.'
       });
     }
 
     // Comprobación anti-duplicados (si la máquina o la persona ya están fuera o ya tienen solicitud activa hoy)
-    const disp = await verificarDisponibilidadEquipo(codigo_maquina, cedula, fecha_salida);
+    const disp = await verificarDisponibilidadEquipo(codigo_maquina, cedula, fechaSalidaFinal);
     if (!disp.disponible) {
       return res.status(400).json({ ok: false, error: disp.error });
     }
@@ -1090,8 +1096,8 @@ app.post('/api/solicitudes', async (req, res) => {
       codigo_maquina.trim().toUpperCase(),
       (modelo || 'DELL').trim().toUpperCase(),
       (tipo_equipo || 'Laptop').trim(),
-      fecha_salida,
-      fecha_retorno_estimada || fecha_salida,
+      fechaSalidaFinal,
+      fechaRetornoFinal,
       (observaciones || '').trim()
     );
 
@@ -1171,7 +1177,11 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
       const modelo = String(row['Modelo'] || row['MODELO'] || row['Marca'] || 'DELL').trim().toUpperCase();
       const tipo = String(row['Tipo de Equipo'] || row['Tipo'] || 'Laptop').trim();
       
-      const fechaSalida = normalizarFechaExcel(row['Fecha Salida'] || row['Fecha'], today);
+      // Para líderes, la fecha de salida siempre corresponde al día de hoy para evitar errores de arrastre en celdas de Excel
+      let fechaSalida = today;
+      if (userRole === 'sistemas') {
+        fechaSalida = normalizarFechaExcel(row['Fecha Salida'] || row['Fecha'], today);
+      }
       const fechaRetorno = normalizarFechaExcel(row['Fecha Retorno'], fechaSalida);
       const obs = String(row['Observaciones'] || row['Obs'] || '').trim();
 
@@ -1486,6 +1496,52 @@ app.put('/api/solicitudes/:id', requireRole(['sistemas']), async (req, res) => {
     );
 
     res.json({ ok: true, message: 'Solicitud actualizada correctamente por Sistemas.' });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 8.2.1. Corregir Fecha de Salida al Día de Hoy en 1 Clic (Sistemas)
+app.patch('/api/solicitudes/:id/cambiar-fecha-hoy', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const today = getFechaLocalEcuador();
+    const sol = await db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(id);
+    if (!sol) {
+      return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
+    }
+
+    const fechaAnt = sol.fecha_salida;
+    await db.prepare('UPDATE solicitudes SET fecha_salida = ? WHERE id = ?').run(today, id);
+    await registrarAuditoria(
+      id,
+      'FECHA_CORREGIDA',
+      'Sistemas',
+      `Fecha de salida corregida de ${fechaAnt} a hoy (${today}) para que Garita pueda despachar.`
+    );
+
+    if (sol.estado === 'APROBADO') {
+      broadcastEvent('SOLICITUD_APROBADA', {
+        id: sol.id,
+        asesor: sol.nombres,
+        lider: sol.lider_nombre,
+        codigo: sol.codigo_maquina,
+        fecha: today
+      });
+    } else {
+      broadcastEvent('SOLICITUD_CREADA', {
+        id: sol.id,
+        asesor: sol.nombres,
+        lider: sol.lider_nombre,
+        codigo: sol.codigo_maquina,
+        fecha: today
+      });
+    }
+
+    res.json({
+      ok: true,
+      message: `Fecha cambiada con éxito de ${fechaAnt} a hoy (${today}). El equipo ya está visible en Garita.`
+    });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
