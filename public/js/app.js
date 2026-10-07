@@ -32,23 +32,33 @@ function getHoraActualEcuador(d = new Date()) {
 function parsearFechaUTC(raw) {
   if (!raw) return null;
   const str = String(raw).trim();
+  // Si ya viene formateado en hora local o es una fecha sin T/Z:
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(str)) return null;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(str) && !str.endsWith('Z') && !str.includes('T')) return null;
+
   let d;
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(str)) {
-    d = new Date(str.replace(' ', 'T') + 'Z');
-  } else if (str.endsWith('Z') || str.includes('+') || str.includes('-05:00')) {
-    d = new Date(str);
-  } else if (str.includes('T')) {
-    d = new Date(str + 'Z');
+  if (str.endsWith('Z') || str.includes('T')) {
+    d = new Date(str.endsWith('Z') ? str : str + 'Z');
   } else {
     d = new Date(str);
   }
-  return isNaN(d.getTime()) ? null : d;
+  return (d && !isNaN(d.getTime())) ? d : null;
 }
 
 // Formatear solo la hora (HH:mm o HH:mm:ss) en hora oficial de Ecuador
 function formatearHoraEcuador(raw, incluirSegundos = false) {
+  if (!raw || raw === '--') return '--:--';
+  const str = String(raw).trim();
+  // Si ya es solo hora (ej: "12:55" o "12:55:41")
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(str)) return str;
+  // Si ya viene como string local con hora al final (ej: "07/10/2026, 12:55:41" o "2026-10-07 12:55:41")
+  const mLocal = str.match(/\b(\d{2}:\d{2}(:\d{2})?)\b/);
+  if (mLocal && !str.endsWith('Z') && !str.includes('T')) {
+    return incluirSegundos ? mLocal[1] : mLocal[1].slice(0, 5);
+  }
+
   const d = parsearFechaUTC(raw);
-  if (!d) return '--:--';
+  if (!d) return str;
   return new Intl.DateTimeFormat('es-EC', {
     timeZone: 'America/Guayaquil',
     hour: '2-digit',
@@ -58,10 +68,16 @@ function formatearHoraEcuador(raw, incluirSegundos = false) {
   }).format(d);
 }
 
-// Formatear fecha y hora completa en hora oficial de Ecuador (DD/MM/YYYY HH:mm)
-function formatearTimestampEcuador(raw, incluirSegundos = false) {
+// Formatear fecha y hora completa en hora oficial de Ecuador (DD/MM/YYYY HH:mm:ss)
+function formatearTimestampEcuador(raw, incluirSegundos = true) {
+  if (!raw || raw === '--') return '--';
+  const str = String(raw).trim();
+  // Si ya viene formateado en formato local ecuatoriano:
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(str)) return str;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(str) && !str.endsWith('Z') && !str.includes('T')) return str;
+
   const d = parsearFechaUTC(raw);
-  if (!d) return '--';
+  if (!d) return str;
   return new Intl.DateTimeFormat('es-EC', {
     timeZone: 'America/Guayaquil',
     year: 'numeric',
@@ -3465,7 +3481,8 @@ async function consultarTrazabilidad(e) {
                 <th class="p-2.5">Líder</th>
                 <th class="p-2.5">N° Serie</th>
                 <th class="p-2.5">Estado</th>
-                <th class="p-2.5">Despacho</th>
+                <th class="p-2.5">Aprobado Por</th>
+                <th class="p-2.5">Despacho Garita</th>
                 <th class="p-2.5">Retorno</th>
               </tr>
             </thead>
@@ -3478,6 +3495,10 @@ async function consultarTrazabilidad(e) {
                   <td class="p-2.5">${s.lider_nombre}</td>
                   <td class="p-2.5 font-mono font-bold text-blue-700">${s.codigo_maquina}</td>
                   <td class="p-2.5"><span class="px-2 py-0.5 rounded-full font-black text-[10px] ${getBadgeClass(s.estado)}">${s.estado}</span></td>
+                  <td class="p-2.5">
+                    <div class="font-bold text-slate-800">${s.aprobado_por || '--'}</div>
+                    <div class="text-[10px] text-slate-500 font-mono">${s.aprobado_en ? formatearTimestampEcuador(s.aprobado_en) : ''}</div>
+                  </td>
                   <td class="p-2.5 font-mono text-[11px]">${s.despachado_en ? formatearTimestampEcuador(s.despachado_en) : '--'}</td>
                   <td class="p-2.5 font-mono text-[11px]">${s.retornado_en ? formatearTimestampEcuador(s.retornado_en) : '--'}</td>
                 </tr>
@@ -3502,7 +3523,7 @@ async function consultarTrazabilidad(e) {
                 <tbody class="divide-y divide-slate-100">
                   ${json.logs.map(l => `
                     <tr>
-                      <td class="p-2 font-mono text-[11px] text-slate-500">${formatearTimestampEcuador(l.timestamp)}</td>
+                      <td class="p-2 font-mono text-[11px] text-slate-700 font-bold">${formatearTimestampEcuador(l.timestamp)}</td>
                       <td class="p-2 font-bold text-blue-600">${l.accion}</td>
                       <td class="p-2 font-semibold text-slate-800">${l.usuario || 'Sistema'}</td>
                       <td class="p-2 text-slate-600">${l.detalles}</td>
@@ -3520,33 +3541,88 @@ async function consultarTrazabilidad(e) {
   }
 }
 
+let debounceAuditoriaTimer = null;
+function debounceAuditoria() {
+  if (debounceAuditoriaTimer) clearTimeout(debounceAuditoriaTimer);
+  debounceAuditoriaTimer = setTimeout(() => {
+    cargarAuditoria();
+  }, 300);
+}
+
+function setAuditoriaFechaRapida(tipo) {
+  const inputFecha = document.getElementById('filtroAuditoriaFecha');
+  if (!inputFecha) return;
+  if (tipo === 'HOY') {
+    inputFecha.value = getFechaLocalEcuador();
+  } else if (tipo === 'AYER') {
+    const ayer = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    inputFecha.value = getFechaLocalEcuador(ayer);
+  } else {
+    inputFecha.value = '';
+  }
+  cargarAuditoria();
+}
+
 async function cargarAuditoria() {
+  const tbody = document.getElementById('tablaAuditoria');
+  const badgeConteo = document.getElementById('badgeConteoAuditoria');
+  if (!tbody) return;
+
+  const inputFecha = document.getElementById('filtroAuditoriaFecha');
+  const selectAccion = document.getElementById('filtroAuditoriaAccion');
+  const inputBusqueda = document.getElementById('filtroAuditoriaBusqueda');
+
+  const fecha = inputFecha ? inputFecha.value : '';
+  const accion = selectAccion ? selectAccion.value : 'TODAS';
+  const q = inputBusqueda ? inputBusqueda.value.trim() : '';
+
   try {
-    const res = await fetchAuth('/api/auditoria');
+    let url = `/api/auditoria?limit=300`;
+    if (fecha) url += `&fecha=${encodeURIComponent(fecha)}`;
+    if (accion && accion !== 'TODAS') url += `&accion=${encodeURIComponent(accion)}`;
+    if (q) url += `&q=${encodeURIComponent(q)}`;
+
+    const res = await fetchAuth(url);
     const json = await res.json();
 
-    const tbody = document.getElementById('tablaAuditoria');
-    if (!tbody) return;
-
-    if (!json.ok || json.data.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="4" class="p-6 text-center text-slate-400">No hay registros de auditoría.</td></tr>`;
+    if (!json.ok || !json.data || json.data.length === 0) {
+      if (badgeConteo) {
+        badgeConteo.textContent = '0 registros';
+        badgeConteo.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200';
+      }
+      tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-slate-400 font-bold">No se encontraron movimientos registrados para el filtro seleccionado.</td></tr>`;
       return;
     }
 
+    if (badgeConteo) {
+      badgeConteo.textContent = `${json.data.length} evento${json.data.length === 1 ? '' : 's'}`;
+      badgeConteo.className = 'px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-200 shadow-xs';
+    }
+
     tbody.innerHTML = json.data.map(log => {
-      let colorAccion = 'text-blue-600';
-      if (log.accion.includes('FALLO')) colorAccion = 'text-rose-600 font-bold';
-      if (log.accion.includes('APROBADA')) colorAccion = 'text-emerald-600 font-bold';
-      if (log.accion.includes('SALIDA')) colorAccion = 'text-sky-600 font-bold';
-      if (log.accion.includes('CAMBIO')) colorAccion = 'text-purple-600 font-bold';
-      if (log.accion.includes('LOGIN')) colorAccion = 'text-emerald-700 font-bold';
+      let badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-slate-100 text-slate-700">' + log.accion + '</span>';
+      if (log.accion.includes('FALLO')) {
+        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-rose-100 text-rose-800 border border-rose-300">🛑 ' + log.accion + '</span>';
+      } else if (log.accion.includes('APROB')) {
+        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">✅ ' + log.accion + '</span>';
+      } else if (log.accion.includes('SALIDA')) {
+        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-blue-100 text-blue-800 border border-blue-300">📤 ' + log.accion + '</span>';
+      } else if (log.accion.includes('RETORNO') || log.accion.includes('ENTRADA')) {
+        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-teal-100 text-teal-800 border border-teal-300">📥 ' + log.accion + '</span>';
+      } else if (log.accion.includes('RECHAZ') || log.accion.includes('CANCEL')) {
+        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-300">❌ ' + log.accion + '</span>';
+      } else if (log.accion.includes('LOGIN')) {
+        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-purple-100 text-purple-800 border border-purple-300">🔐 ' + log.accion + '</span>';
+      } else if (log.accion.includes('CLAVE')) {
+        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-yellow-100 text-yellow-900 border border-yellow-300">🔑 ' + log.accion + '</span>';
+      }
 
       return `
-        <tr class="hover:bg-slate-50 transition">
-          <td class="p-3 text-slate-600 font-mono text-xs font-semibold">${formatearTimestampEcuador(log.timestamp)}</td>
-          <td class="p-3 ${colorAccion}">${log.accion}</td>
-          <td class="p-3 font-semibold text-slate-800">${log.usuario}</td>
-          <td class="p-3 text-slate-700">${log.detalles}</td>
+        <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+          <td class="p-3 text-slate-700 font-mono text-xs font-bold whitespace-nowrap">${formatearTimestampEcuador(log.timestamp)}</td>
+          <td class="p-3">${badgeAccion}</td>
+          <td class="p-3 font-black text-slate-800 text-xs">${log.usuario || 'Sistema'}</td>
+          <td class="p-3 text-slate-700 font-medium text-xs leading-relaxed">${log.detalles || '--'}</td>
         </tr>
       `;
     }).join('');

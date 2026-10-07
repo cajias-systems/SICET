@@ -1284,27 +1284,110 @@
           <div id="resultadoTrazabilidad" class="mt-6 hidden"></div>
         </div>
 
-        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div class="flex items-center justify-between mb-4">
+        <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-2 border-b border-slate-100">
             <div>
-              <h2 class="text-lg font-black text-slate-800">Bitácora Global de Auditoría</h2>
-              <p class="text-slate-500 text-xs">Registro cronológico de operaciones realizadas por Sistemas y Garita.</p>
+              <div class="flex items-center gap-2.5">
+                <h2 class="text-lg font-black text-slate-800">Bitácora Global de Auditoría</h2>
+                <span id="badgeConteoAuditoria" class="px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-200">
+                  Cargando...
+                </span>
+              </div>
+              <p class="text-slate-500 text-xs mt-0.5">Control y registro cronológico de autorizaciones, salidas, devoluciones y accesos.</p>
             </div>
-            <button onclick="cargarAuditoria()" class="touch-btn px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg border flex items-center gap-1.5">
-              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
-            </button>
+            
+            <div class="flex items-center gap-2">
+              <button onclick="cargarAuditoria()" class="touch-btn px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl border flex items-center gap-1.5 transition">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+              </button>
+            </div>
           </div>
-          <div class="overflow-x-auto">
-            <table class="w-full text-left text-sm font-mono">
-              <thead class="bg-slate-900 text-slate-200 uppercase text-xs font-bold">
+
+          <!-- BARRA DE FILTROS EN TIEMPO REAL -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 pt-1">
+            <!-- Filtro de Fecha -->
+            <div class="lg:col-span-4 flex items-center gap-2">
+              <div class="flex-1">
+                <label class="block text-[10px] font-black uppercase text-slate-500 mb-1">Fecha (Ecuador)</label>
+                <input 
+                  type="date" 
+                  id="filtroAuditoriaFecha" 
+                  onchange="cargarAuditoria()" 
+                  class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+              </div>
+              <div class="flex items-end gap-1 pt-4">
+                <button 
+                  type="button" 
+                  onclick="setAuditoriaFechaRapida('HOY')" 
+                  class="touch-btn px-2.5 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl text-[11px] font-bold border border-blue-200"
+                  title="Ver movimientos de hoy"
+                >
+                  Hoy
+                </button>
+                <button 
+                  type="button" 
+                  onclick="setAuditoriaFechaRapida('AYER')" 
+                  class="touch-btn px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[11px] font-bold border border-slate-200"
+                  title="Ver movimientos de ayer"
+                >
+                  Ayer
+                </button>
+                <button 
+                  type="button" 
+                  onclick="setAuditoriaFechaRapida('TODAS')" 
+                  class="touch-btn px-2.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[11px] font-bold border border-slate-200"
+                  title="Ver histórico general"
+                >
+                  Todo
+                </button>
+              </div>
+            </div>
+
+            <!-- Filtro de Tipo de Acción -->
+            <div class="lg:col-span-4">
+              <label class="block text-[10px] font-black uppercase text-slate-500 mb-1">Tipo de Operación</label>
+              <select 
+                id="filtroAuditoriaAccion" 
+                onchange="cargarAuditoria()" 
+                class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="TODAS">🔍 Todas las Operaciones</option>
+                <option value="APROBACIONES">✅ Solo Aprobaciones (Sistemas)</option>
+                <option value="SALIDAS">📤 Solo Salidas (Garita / Pase Libre)</option>
+                <option value="RETORNOS">📥 Solo Retornos (Reingresos a Planta)</option>
+                <option value="RECHAZOS">❌ Solo Rechazos / Cancelaciones</option>
+                <option value="LOGINS">🔐 Inicios de Sesión & Claves</option>
+              </select>
+            </div>
+
+            <!-- Buscador por Texto -->
+            <div class="lg:col-span-4">
+              <label class="block text-[10px] font-black uppercase text-slate-500 mb-1">Buscar Asesor / Serie / Operador</label>
+              <div class="relative">
+                <input 
+                  type="text" 
+                  id="filtroAuditoriaBusqueda" 
+                  placeholder="Ej: Anthony, PC0AJQWS, Wendy..." 
+                  oninput="debounceAuditoria()" 
+                  class="w-full pl-8 pr-3 py-2 text-xs font-bold border border-slate-300 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto rounded-2xl border border-slate-200">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-900 text-slate-200 uppercase text-xs font-bold tracking-wider">
                 <tr>
-                  <th class="p-3">Timestamp</th>
-                  <th class="p-3">Acción</th>
-                  <th class="p-3">Operador</th>
-                  <th class="p-3">Detalles</th>
+                  <th class="p-3 w-48">Fecha y Hora (Ecuador)</th>
+                  <th class="p-3 w-44">Acción Realizada</th>
+                  <th class="p-3 w-44">Operador / Usuario</th>
+                  <th class="p-3">Detalles de la Operación</th>
                 </tr>
               </thead>
-              <tbody id="tablaAuditoria" class="divide-y divide-slate-200 text-xs"></tbody>
+              <tbody id="tablaAuditoria" class="divide-y divide-slate-200 text-xs bg-white"></tbody>
             </table>
           </div>
         </div>

@@ -51,7 +51,7 @@ function formatearTimestampEcuador(raw) {
     dateObj = new Date(str);
   }
   if (isNaN(dateObj.getTime())) return raw;
-  return new Intl.DateTimeFormat('en-CA', {
+  return new Intl.DateTimeFormat('es-EC', {
     timeZone: 'America/Guayaquil',
     year: 'numeric',
     month: '2-digit',
@@ -60,7 +60,7 @@ function formatearTimestampEcuador(raw) {
     minute: '2-digit',
     second: '2-digit',
     hour12: false
-  }).format(dateObj).replace(', ', ' ');
+  }).format(dateObj);
 }
 
 // Validación de horario de recepción para líderes (08:00 a 17:00, hora de Ecuador)
@@ -1401,8 +1401,9 @@ app.patch('/api/solicitudes/:id/aprobar', requireRole(['sistemas']), async (req,
       return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
     }
 
-    const sol = await db.prepare('SELECT lider_nombre, nombres, codigo_maquina FROM solicitudes WHERE id = ?').get(id);
-    await registrarAuditoria(id, 'APROBADA', aprobado_por, 'Autorizado formalmente por Sistemas');
+    const sol = await db.prepare('SELECT lider_nombre, nombres, codigo_maquina, modelo FROM solicitudes WHERE id = ?').get(id);
+    const detalleAprob = `Autorizado formalmente por ${aprobado_por}. Asesor: ${sol ? sol.nombres : 'N/A'}, Laptop: ${sol ? sol.codigo_maquina : 'N/A'} (${sol ? (sol.modelo || 'DELL') : ''}), Líder: ${sol ? sol.lider_nombre : 'N/A'}`;
+    await registrarAuditoria(id, 'APROBADA', aprobado_por, detalleAprob);
 
     broadcastEvent('SOLICITUD_APROBADA', {
       id: parseInt(id),
@@ -1436,8 +1437,9 @@ app.patch('/api/solicitudes/:id/rechazar', requireRole(['sistemas']), async (req
       return res.status(404).json({ ok: false, error: 'Solicitud no encontrada.' });
     }
 
-    const sol = await db.prepare('SELECT lider_nombre, nombres, codigo_maquina FROM solicitudes WHERE id = ?').get(id);
-    await registrarAuditoria(id, 'RECHAZADA', aprobado_por, `Motivo: ${motivo_rechazo}`);
+    const sol = await db.prepare('SELECT lider_nombre, nombres, codigo_maquina, modelo FROM solicitudes WHERE id = ?').get(id);
+    const detalleRech = `Rechazada por ${aprobado_por}. Asesor: ${sol ? sol.nombres : 'N/A'}, Laptop: ${sol ? sol.codigo_maquina : 'N/A'}, Líder: ${sol ? sol.lider_nombre : 'N/A'}. Motivo: ${motivo_rechazo}`;
+    await registrarAuditoria(id, 'RECHAZADA', aprobado_por, detalleRech);
 
     broadcastEvent('SOLICITUD_RECHAZADA', {
       id: parseInt(id),
@@ -1693,9 +1695,11 @@ app.post('/api/solicitudes/aprobar-lote', requireRole(['sistemas']), async (req,
         WHERE id = ? AND estado = 'PENDIENTE'
       `);
       for (const id of ids) {
+        const sol = await db.prepare('SELECT lider_nombre, nombres, codigo_maquina, modelo FROM solicitudes WHERE id = ?').get(id);
         const r = await stmt.run(aprobado_por, now, id);
         if (r.changes > 0) {
-          await registrarAuditoria(id, 'APROBADA_LOTE', aprobado_por, 'Aprobación por lote seleccionada');
+          const det = `Aprobación en lote por ${aprobado_por}. Asesor: ${sol ? sol.nombres : 'ID ' + id}, Laptop: ${sol ? sol.codigo_maquina : 'N/A'}, Líder: ${sol ? sol.lider_nombre : 'N/A'}`;
+          await registrarAuditoria(id, 'APROBADA_LOTE', aprobado_por, det);
           count++;
         }
       }
@@ -1743,9 +1747,11 @@ app.post('/api/solicitudes/rechazar-lote', requireRole(['sistemas']), async (req
         WHERE id = ? AND estado IN ('PENDIENTE', 'APROBADO')
       `);
       for (const id of ids) {
+        const sol = await db.prepare('SELECT lider_nombre, nombres, codigo_maquina, modelo FROM solicitudes WHERE id = ?').get(id);
         const r = await stmt.run(motivo_rechazo, aprobado_por, now, id);
         if (r.changes > 0) {
-          await registrarAuditoria(id, 'RECHAZADA_LOTE', aprobado_por, `Rechazo en lote: ${motivo_rechazo}`);
+          const det = `Rechazo en lote por ${aprobado_por}. Asesor: ${sol ? sol.nombres : 'ID ' + id}, Laptop: ${sol ? sol.codigo_maquina : 'N/A'}, Líder: ${sol ? sol.lider_nombre : 'N/A'}. Motivo: ${motivo_rechazo}`;
+          await registrarAuditoria(id, 'RECHAZADA_LOTE', aprobado_por, det);
           count++;
         }
       }
@@ -2697,15 +2703,51 @@ app.get('/api/exportar/excel', async (req, res) => {
   }
 });
 
-// 19. Auditoría / Logs (Formateado en Zona Horaria Oficial de Ecuador: Quito, UTC-5)
+// 19. Auditoría / Logs con Filtros de Fecha (Ecuador), Tipo de Acción y Búsqueda
 app.get('/api/auditoria', async (req, res) => {
   try {
-    const logs = await db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT 100').all();
+    const { fecha, q, accion, limit = 250 } = req.query;
+    let query = 'SELECT * FROM auditoria WHERE 1=1';
+    const params = [];
+
+    if (fecha && fecha !== 'TODAS') {
+      query += " AND strftime('%Y-%m-%d', timestamp, '-5 hours') = ?";
+      params.push(fecha);
+    }
+
+    if (accion && accion !== 'TODAS') {
+      if (accion === 'APROBACIONES') {
+        query += " AND (accion = 'APROBADA' OR accion = 'APROBADA_LOTE' OR accion = 'APROBACION_GLOBAL')";
+      } else if (accion === 'SALIDAS') {
+        query += " AND (accion = 'SALIDA_CONFIRMADA' OR accion = 'LIDER_SALIDA' OR accion = 'SALIDA_HABITUAL_1CLIC')";
+      } else if (accion === 'RETORNOS') {
+        query += " AND (accion = 'RETORNO_CONFIRMADO' OR accion = 'LIDER_ENTRADA')";
+      } else if (accion === 'RECHAZOS') {
+        query += " AND (accion = 'RECHAZADA' OR accion = 'RECHAZADA_LOTE' OR accion = 'RECHAZO_GLOBAL' OR accion = 'CANCELADA_POR_LIDER')";
+      } else if (accion === 'LOGINS') {
+        query += " AND (accion = 'LOGIN_EXITOSO' OR accion = 'LOGIN_LIDER' OR accion = 'CAMBIO_CLAVE')";
+      } else {
+        query += ' AND accion = ?';
+        params.push(accion);
+      }
+    }
+
+    if (q && q.trim()) {
+      const term = `%${q.trim()}%`;
+      query += ' AND (detalles LIKE ? OR usuario LIKE ? OR accion LIKE ?)';
+      params.push(term, term, term);
+    }
+
+    query += ' ORDER BY id DESC LIMIT ?';
+    params.push(parseInt(limit, 10) || 250);
+
+    const logs = await db.prepare(query).all(...params);
     const data = logs.map(l => ({
       ...l,
+      timestamp_raw: l.timestamp,
       timestamp: formatearTimestampEcuador(l.timestamp)
     }));
-    res.json({ ok: true, data });
+    res.json({ ok: true, data, count: data.length });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
