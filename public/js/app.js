@@ -17,6 +17,63 @@ function getFechaLocalEcuador(d = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(d);
 }
 
+// Obtener hora actual en zona horaria oficial de Ecuador (HH:mm:ss)
+function getHoraActualEcuador(d = new Date()) {
+  return new Intl.DateTimeFormat('es-EC', {
+    timeZone: 'America/Guayaquil',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(d);
+}
+
+// Helper para convertir cualquier timestamp o string de fecha a objeto Date seguro
+function parsearFechaUTC(raw) {
+  if (!raw) return null;
+  const str = String(raw).trim();
+  let d;
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(str)) {
+    d = new Date(str.replace(' ', 'T') + 'Z');
+  } else if (str.endsWith('Z') || str.includes('+') || str.includes('-05:00')) {
+    d = new Date(str);
+  } else if (str.includes('T')) {
+    d = new Date(str + 'Z');
+  } else {
+    d = new Date(str);
+  }
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Formatear solo la hora (HH:mm o HH:mm:ss) en hora oficial de Ecuador
+function formatearHoraEcuador(raw, incluirSegundos = false) {
+  const d = parsearFechaUTC(raw);
+  if (!d) return '--:--';
+  return new Intl.DateTimeFormat('es-EC', {
+    timeZone: 'America/Guayaquil',
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(incluirSegundos ? { second: '2-digit' } : {}),
+    hour12: false
+  }).format(d);
+}
+
+// Formatear fecha y hora completa en hora oficial de Ecuador (DD/MM/YYYY HH:mm)
+function formatearTimestampEcuador(raw, incluirSegundos = false) {
+  const d = parsearFechaUTC(raw);
+  if (!d) return '--';
+  return new Intl.DateTimeFormat('es-EC', {
+    timeZone: 'America/Guayaquil',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(incluirSegundos ? { second: '2-digit' } : {}),
+    hour12: false
+  }).format(d);
+}
+
 // Audio context para sonidos sintetizados
 let audioCtx = null;
 function initAudio() {
@@ -633,8 +690,20 @@ function configurarPermisosNavegacion(rol) {
 
 function actualizarReloj() {
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('es-ES', { hour12: false });
-  const dateStr = now.toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+  const timeStr = new Intl.DateTimeFormat('es-EC', {
+    timeZone: 'America/Guayaquil',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(now);
+  const dateStr = new Intl.DateTimeFormat('es-EC', {
+    timeZone: 'America/Guayaquil',
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(now);
   const elTime = document.getElementById('liveTime');
   const elDate = document.getElementById('liveDate');
   if (elTime) elTime.textContent = timeStr;
@@ -1261,7 +1330,7 @@ function filtrarDespachadosGaritaPorLider() {
   }
 
   tbody.innerHTML = items.map(item => {
-    const hora = item.despachado_en ? new Date(item.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+    const hora = item.despachado_en ? formatearHoraEcuador(item.despachado_en) : '--:--';
     const badgeClass = getBadgeClass(item.estado);
 
     return `
@@ -1302,7 +1371,7 @@ function renderizarBitacoraCompleta() {
   }
 
   tbody.innerHTML = ultimosDespachosCache.map((item, index) => {
-    const hora = item.despachado_en ? new Date(item.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+    const hora = item.despachado_en ? formatearHoraEcuador(item.despachado_en) : '--:--';
 
     return `
       <tr class="hover:bg-slate-50">
@@ -2391,8 +2460,8 @@ async function cargarReporteLideres() {
                       <td class="p-3 font-mono font-bold text-blue-700">${item.codigo_maquina}</td>
                       <td class="p-3 font-bold">${item.modelo || 'DELL'}</td>
                       <td class="p-3 text-slate-700 font-bold">${item.fecha_salida}</td>
-                      <td class="p-3 text-slate-600">${item.despachado_en ? new Date(item.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '--'}</td>
-                      <td class="p-3 text-slate-600">${item.retornado_en ? new Date(item.retornado_en).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' }) : '<span class="text-amber-700 font-bold">Pendiente (En posesión)</span>'}</td>
+                      <td class="p-3 text-slate-600">${item.despachado_en ? formatearHoraEcuador(item.despachado_en) : '--'}</td>
+                      <td class="p-3 text-slate-600">${item.retornado_en ? formatearTimestampEcuador(item.retornado_en) : '<span class="text-amber-700 font-bold">Pendiente (En posesión)</span>'}</td>
                       <td class="p-3 text-center">
                         <span class="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${badge}">
                           ${isFuera ? '🚨 EN TELETRABAJO' : item.estado}
@@ -2901,11 +2970,11 @@ async function cargarSolicitudesLiderHoy() {
         estadoBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">APROBADO GARITA</span>';
         detalle = `Aprobado por ${item.aprobado_por || 'Sistemas TI'}. Listo para retiro en garita`;
       } else if (item.estado === 'SALIO') {
-        const horaSalida = item.despachado_en ? new Date(item.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+        const horaSalida = item.despachado_en ? formatearHoraEcuador(item.despachado_en) : '';
         estadoBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-300">EN TELETRABAJO</span>';
         detalle = `Retiró de garita a las ${horaSalida || 'hoy'} (Guardia: ${item.despachado_por || 'Garita'})`;
       } else if (item.estado === 'RETORNADO') {
-        const horaRet = item.retornado_en ? new Date(item.retornado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+        const horaRet = item.retornado_en ? formatearHoraEcuador(item.retornado_en) : '';
         estadoBadge = '<span class="px-2.5 py-1 rounded-full text-xs font-black bg-cyan-100 text-cyan-800 border border-cyan-300">RETORNADO</span>';
         detalle = `Devolvió laptop a garita a las ${horaRet || 'hoy'} (Custodia: ${item.retornado_por || 'Garita'})`;
       } else if (item.estado === 'RECHAZADO') {
@@ -3055,7 +3124,7 @@ function filtrarEquiposFueraPorLider() {
   }
 
   tbody.innerHTML = items.map(item => {
-    const horaSalida = item.despachado_en ? new Date(item.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : item.fecha_salida;
+    const horaSalida = item.despachado_en ? formatearHoraEcuador(item.despachado_en, true) : item.fecha_salida;
     const safeName = (item.nombres || '').replace(/'/g, "\\'");
 
     return `
@@ -3154,7 +3223,7 @@ function filtrarRetornadosHoyPorLider() {
   }
 
   tbody.innerHTML = items.map(item => {
-    const horaRetorno = item.retornado_en ? new Date(item.retornado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--';
+    const horaRetorno = item.retornado_en ? formatearHoraEcuador(item.retornado_en, true) : '--';
 
     return `
       <tr class="hover:bg-slate-50 transition border-b border-slate-100">
@@ -3246,7 +3315,7 @@ function mostrarConfirmacionRetorno(data) {
   const container = document.getElementById('contenedorResultadoRetorno');
   if (!container) return;
 
-  const horaRet = data.hora_retorno ? new Date(data.hora_retorno).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Recién';
+  const horaRet = data.hora_retorno ? formatearHoraEcuador(data.hora_retorno, true) : 'Recién';
 
   container.innerHTML = `
     <div class="bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-100 border-4 border-emerald-500 text-emerald-950 p-6 sm:p-7 rounded-3xl shadow-xl">
@@ -3314,7 +3383,7 @@ function mostrarAlertaYaRetornado(data) {
   const container = document.getElementById('contenedorResultadoRetorno');
   if (!container) return;
 
-  const horaRet = data.retornado_en ? new Date(data.retornado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Hoy';
+  const horaRet = data.retornado_en ? formatearHoraEcuador(data.retornado_en, true) : 'Hoy';
 
   container.innerHTML = `
     <div class="bg-amber-50 border-4 border-amber-400 text-amber-950 p-6 sm:p-7 rounded-3xl shadow-xl">
@@ -3409,13 +3478,41 @@ async function consultarTrazabilidad(e) {
                   <td class="p-2.5">${s.lider_nombre}</td>
                   <td class="p-2.5 font-mono font-bold text-blue-700">${s.codigo_maquina}</td>
                   <td class="p-2.5"><span class="px-2 py-0.5 rounded-full font-black text-[10px] ${getBadgeClass(s.estado)}">${s.estado}</span></td>
-                  <td class="p-2.5 text-[11px]">${s.despachado_en || '--'}</td>
-                  <td class="p-2.5 text-[11px]">${s.retornado_en || '--'}</td>
+                  <td class="p-2.5 font-mono text-[11px]">${s.despachado_en ? formatearTimestampEcuador(s.despachado_en) : '--'}</td>
+                  <td class="p-2.5 font-mono text-[11px]">${s.retornado_en ? formatearTimestampEcuador(s.retornado_en) : '--'}</td>
                 </tr>
               `).join('')}
             </tbody>
           </table>
         </div>
+
+        ${json.logs && json.logs.length > 0 ? `
+          <div class="mt-4 pt-3 border-t border-slate-200">
+            <h4 class="text-xs font-black uppercase text-slate-700 mb-2">Bitácora de Auditoría Relacionada</h4>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-100 text-slate-600 font-bold">
+                  <tr>
+                    <th class="p-2">Fecha y Hora (Ecuador)</th>
+                    <th class="p-2">Acción</th>
+                    <th class="p-2">Usuario</th>
+                    <th class="p-2">Detalles</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${json.logs.map(l => `
+                    <tr>
+                      <td class="p-2 font-mono text-[11px] text-slate-500">${formatearTimestampEcuador(l.timestamp)}</td>
+                      <td class="p-2 font-bold text-blue-600">${l.accion}</td>
+                      <td class="p-2 font-semibold text-slate-800">${l.usuario || 'Sistema'}</td>
+                      <td class="p-2 text-slate-600">${l.detalles}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ` : ''}
       </div>
     `;
   } catch (error) {
@@ -3446,7 +3543,7 @@ async function cargarAuditoria() {
 
       return `
         <tr class="hover:bg-slate-50 transition">
-          <td class="p-3 text-slate-500">${log.timestamp}</td>
+          <td class="p-3 text-slate-600 font-mono text-xs font-semibold">${formatearTimestampEcuador(log.timestamp)}</td>
           <td class="p-3 ${colorAccion}">${log.accion}</td>
           <td class="p-3 font-semibold text-slate-800">${log.usuario}</td>
           <td class="p-3 text-slate-700">${log.detalles}</td>
@@ -3529,7 +3626,12 @@ function showToast(message, type = 'success') {
     toastTimer = null;
   }
 
-  toastMsg.textContent = message;
+  const horaLocal = getHoraActualEcuador();
+  const mensajeConHora = (typeof message === 'string' && message.startsWith('[')) 
+    ? message 
+    : `[${horaLocal}] ${message}`;
+
+  toastMsg.textContent = mensajeConHora;
   toast.className = 'fixed bottom-5 right-5 z-50 transition-all duration-300 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl text-sm font-bold text-white pointer-events-none ';
 
   if (type === 'success') {
@@ -3797,7 +3899,7 @@ function renderizarTablaLideresEquipos(lideres) {
          </button>`;
 
     const ultimoMov = l.ultimo_movimiento_en
-      ? `<div class="text-xs text-slate-700 font-semibold">${new Date(l.ultimo_movimiento_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}</div>
+      ? `<div class="text-xs text-slate-700 font-semibold">${formatearHoraEcuador(l.ultimo_movimiento_en)}</div>
          <div class="text-[10px] text-slate-400">${l.ultimo_movimiento_tipo === 'SALIDA' ? 'Salida' : 'Entrada'} por ${l.ultimo_guardia || 'Garita'}</div>`
       : `<span class="text-xs text-slate-400 italic">Sin registros hoy</span>`;
 
@@ -3895,7 +3997,7 @@ async function cargarBitacoraMovimientosLideres() {
            </span>`;
 
       const fechaHoraFormato = m.fecha_hora 
-        ? new Date(m.fecha_hora).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }) + ' ' + new Date(m.fecha_hora).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        ? formatearTimestampEcuador(m.fecha_hora)
         : '--';
 
       return `
@@ -4089,4 +4191,106 @@ function cerrarResultadoLider() {
   const input = document.getElementById('inputEscaneoLider');
   if (input) input.focus();
 }
+
+// =============================================================
+// GESTIÓN DE SEGURIDAD: CAMBIO DE CONTRASEÑA
+// =============================================================
+
+function abrirModalCambiarClave() {
+  const modal = document.getElementById('modalCambiarClave');
+  if (!modal) return;
+  const inputActual = document.getElementById('inputClaveActual');
+  const inputNueva = document.getElementById('inputNuevaClave');
+  const inputConfirmar = document.getElementById('inputConfirmarClave');
+  const errorMsg = document.getElementById('cambioClaveErrorMsg');
+  if (inputActual) inputActual.value = '';
+  if (inputNueva) inputNueva.value = '';
+  if (inputConfirmar) inputConfirmar.value = '';
+  if (errorMsg) {
+    errorMsg.classList.add('hidden');
+    errorMsg.textContent = '';
+  }
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  if (inputActual) inputActual.focus();
+}
+
+function cerrarModalCambiarClave() {
+  const modal = document.getElementById('modalCambiarClave');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
+async function guardarCambioClave(e) {
+  e.preventDefault();
+  const inputActual = document.getElementById('inputClaveActual');
+  const inputNueva = document.getElementById('inputNuevaClave');
+  const inputConfirmar = document.getElementById('inputConfirmarClave');
+  const errorMsg = document.getElementById('cambioClaveErrorMsg');
+  const btn = document.getElementById('btnGuardarCambioClave');
+
+  const claveActual = inputActual ? inputActual.value.trim() : '';
+  const nuevaClave = inputNueva ? inputNueva.value.trim() : '';
+  const confirmarClave = inputConfirmar ? inputConfirmar.value.trim() : '';
+
+  if (errorMsg) errorMsg.classList.add('hidden');
+
+  if (!claveActual || !nuevaClave) {
+    if (errorMsg) {
+      errorMsg.textContent = 'Por favor complete todos los campos obligatorios.';
+      errorMsg.classList.remove('hidden');
+    }
+    return;
+  }
+
+  if (nuevaClave.length < 6) {
+    if (errorMsg) {
+      errorMsg.textContent = 'La nueva contraseña debe tener al menos 6 caracteres.';
+      errorMsg.classList.remove('hidden');
+    }
+    return;
+  }
+
+  if (nuevaClave !== confirmarClave) {
+    if (errorMsg) {
+      errorMsg.textContent = 'La nueva contraseña y su confirmación no coinciden.';
+      errorMsg.classList.remove('hidden');
+    }
+    return;
+  }
+
+  try {
+    if (btn) btn.disabled = true;
+    const username = currentUser ? currentUser.username : 'sistemas';
+    const res = await fetchAuth('/api/auth/cambiar-clave', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username,
+        clave_actual: claveActual,
+        nueva_clave: nuevaClave
+      })
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      throw new Error(json.error || 'No se pudo actualizar la contraseña');
+    }
+
+    playSuccessSound();
+    showToast('¡Contraseña actualizada exitosamente!', 'success');
+    cerrarModalCambiarClave();
+  } catch (error) {
+    if (errorMsg) {
+      errorMsg.textContent = error.message;
+      errorMsg.classList.remove('hidden');
+    }
+    playErrorSound();
+    showToast(error.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 

@@ -26,6 +26,74 @@ function getFechaLocalEcuador(d = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Guayaquil' }).format(d);
 }
 
+// Función auxiliar para obtener timestamp completo (YYYY-MM-DD HH:mm:ss) en hora oficial de Ecuador
+function getTimestampLocalEcuador(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Guayaquil',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(d).replace(', ', ' ');
+}
+
+// Función para formatear cualquier timestamp (UTC de SQLite o ISO) a la hora oficial de Ecuador (Quito, UTC-5)
+function formatearTimestampEcuador(raw) {
+  if (!raw) return '--';
+  const str = String(raw).trim();
+  let dateObj;
+  if (!str.endsWith('Z') && !str.includes('+') && !str.includes('-05:00')) {
+    dateObj = new Date(str.replace(' ', 'T') + 'Z');
+  } else {
+    dateObj = new Date(str);
+  }
+  if (isNaN(dateObj.getTime())) return raw;
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Guayaquil',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).format(dateObj).replace(', ', ' ');
+}
+
+// Validación de horario de recepción para líderes (08:00 a 17:00, hora de Ecuador)
+function verificarHorarioRecepcionLideres(userRole) {
+  if (userRole === 'sistemas') {
+    return { permitido: true }; // Sistemas tiene permiso las 24 horas para operar y autorizar
+  }
+
+  const d = new Date();
+  const options = { timeZone: 'America/Guayaquil', hour12: false, hour: 'numeric', minute: 'numeric' };
+  const parts = new Intl.DateTimeFormat('en-US', options).formatToParts(d);
+  let hour = 0;
+  let minute = 0;
+  for (const p of parts) {
+    if (p.type === 'hour') hour = parseInt(p.value, 10);
+    if (p.type === 'minute') minute = parseInt(p.value, 10);
+  }
+
+  const totalMin = hour * 60 + minute;
+  const inicio = 8 * 60; // 08:00
+  const fin = 17 * 60;   // 17:00 (5:00 PM)
+
+  if (totalMin < inicio || totalMin > fin) {
+    const horaStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+    return {
+      permitido: false,
+      error: `Horario fuera de turno (${horaStr}): Las solicitudes de salida para teletrabajo únicamente se reciben de 08:00 a 17:00 (hora oficial de Ecuador). El área de Sistemas ha concluido su turno.`
+    };
+  }
+
+  return { permitido: true };
+}
+
 // ==========================================
 // CANAL REACTIVO EN TIEMPO REAL (SSE - Server-Sent Events)
 // ==========================================
@@ -70,14 +138,15 @@ app.get('/api/events', (req, res) => {
   });
 });
 
-// Función auxiliar para registrar auditoría
+// Función auxiliar para registrar auditoría con marca de tiempo precisa
 async function registrarAuditoria(solicitudId, accion, usuario, detalles) {
   try {
+    const nowIso = new Date().toISOString();
     const stmt = await db.prepare(`
-      INSERT INTO auditoria (solicitud_id, accion, usuario, detalles)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO auditoria (solicitud_id, accion, usuario, detalles, timestamp)
+      VALUES (?, ?, ?, ?, ?)
     `);
-    await stmt.run(solicitudId, accion, usuario, detalles);
+    await stmt.run(solicitudId, accion, usuario, detalles, nowIso);
   } catch (err) {
     console.error('Error al registrar auditoría:', err);
   }
@@ -682,7 +751,11 @@ app.get('/api/garita/lideres/movimientos', async (req, res) => {
     query += ' ORDER BY id DESC LIMIT 100';
 
     const movimientos = await db.prepare(query).all(...params);
-    res.json({ ok: true, data: movimientos });
+    const data = movimientos.map(m => ({
+      ...m,
+      fecha_hora: formatearTimestampEcuador(m.fecha_hora)
+    }));
+    res.json({ ok: true, data });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -847,6 +920,12 @@ app.delete('/api/lider/mi-equipo/:id', async (req, res) => {
 app.post('/api/lider/autorizar-lote-habitual', async (req, res) => {
   try {
     const { lider_nombre, asesores_ids, asesores: asesoresDirectos, fecha_salida, fecha_retorno_estimada, observaciones, area } = req.body;
+
+    const userRole = req.headers['x-user-role'] || 'lider';
+    const checkHorario = verificarHorarioRecepcionLideres(userRole);
+    if (!checkHorario.permitido) {
+      return res.status(403).json({ ok: false, error: checkHorario.error });
+    }
 
     if (!lider_nombre) {
       return res.status(400).json({ ok: false, error: 'El nombre del líder es requerido.' });
@@ -1065,6 +1144,11 @@ app.post('/api/solicitudes', async (req, res) => {
 
     const today = getFechaLocalEcuador();
     const userRole = req.headers['x-user-role'] || 'lider';
+    const checkHorario = verificarHorarioRecepcionLideres(userRole);
+    if (!checkHorario.permitido) {
+      return res.status(403).json({ ok: false, error: checkHorario.error });
+    }
+
     // Para líderes, la fecha de salida siempre es el día de hoy (no agendamiento a futuro)
     const fechaSalidaFinal = (userRole === 'sistemas' && fecha_salida) ? fecha_salida : today;
     const fechaRetornoFinal = fecha_retorno_estimada || fechaSalidaFinal;
@@ -1144,6 +1228,12 @@ app.post('/api/solicitudes/bulk-excel', upload.single('archivo'), async (req, re
   const lider_default = (req.body.lider_nombre || '').trim();
   const userRole = req.headers['x-user-role'] || 'lider';
   const filePath = req.file.path;
+
+  const checkHorario = verificarHorarioRecepcionLideres(userRole);
+  if (!checkHorario.permitido) {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    return res.status(403).json({ ok: false, error: checkHorario.error });
+  }
 
   try {
     const workbook = xlsx.readFile(filePath);
@@ -2199,8 +2289,16 @@ app.get('/api/trazabilidad', async (req, res) => {
     res.json({
       ok: true,
       termino: term,
-      solicitudes: historial,
-      logs
+      solicitudes: historial.map(s => ({
+        ...s,
+        despachado_en: formatearTimestampEcuador(s.despachado_en),
+        retornado_en: formatearTimestampEcuador(s.retornado_en),
+        aprobado_en: formatearTimestampEcuador(s.aprobado_en)
+      })),
+      logs: logs.map(l => ({
+        ...l,
+        timestamp: formatearTimestampEcuador(l.timestamp)
+      }))
     });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
@@ -2445,8 +2543,8 @@ app.get('/api/hoja-control', async (req, res) => {
       ${registros.length === 0 ? `
         <tr><td colspan="10" style="padding: 20px; text-align: center; color: #9ca3af;">No se encontraron registros para este líder en la fecha seleccionada.</td></tr>
       ` : registros.map((r, index) => {
-        const horaSalida = r.despachado_en ? new Date(r.despachado_en).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
-        const fechaRetorno = r.retornado_en ? new Date(r.retornado_en).toLocaleDateString('es-ES') : '';
+        const horaSalida = r.despachado_en ? new Intl.DateTimeFormat('es-EC', { timeZone: 'America/Guayaquil', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(r.despachado_en)) : '';
+        const fechaRetorno = r.retornado_en ? new Intl.DateTimeFormat('es-EC', { timeZone: 'America/Guayaquil', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(r.retornado_en)) : '';
         const estadoLabel = r.estado === 'RETORNADO' ? '[DEVUELTO]' : (r.estado === 'SALIO' ? '[EN TELETRABAJO]' : '');
 
         return `
@@ -2575,11 +2673,11 @@ app.get('/api/exportar/excel', async (req, res) => {
       'Fecha Retorno': r.fecha_retorno_estimada,
       'Estado': r.estado,
       'Aprobado Por': r.aprobado_por || '',
-      'Hora Aprobación': r.aprobado_en || '',
+      'Hora Aprobación': formatearTimestampEcuador(r.aprobado_en),
       'Despachado Por': r.despachado_por || '',
-      'Hora Salida Garita': r.despachado_en || '',
+      'Hora Salida Garita': formatearTimestampEcuador(r.despachado_en),
       'Retornado Por': r.retornado_por || '',
-      'Hora Retorno': r.retornado_en || '',
+      'Hora Retorno': formatearTimestampEcuador(r.retornado_en),
       'Motivo Rechazo': r.motivo_rechazo || '',
       'Observaciones': r.observaciones || ''
     }));
@@ -2599,11 +2697,15 @@ app.get('/api/exportar/excel', async (req, res) => {
   }
 });
 
-// 19. Auditoría / Logs
+// 19. Auditoría / Logs (Formateado en Zona Horaria Oficial de Ecuador: Quito, UTC-5)
 app.get('/api/auditoria', async (req, res) => {
   try {
-    const logs = await db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT 60').all();
-    res.json({ ok: true, data: logs });
+    const logs = await db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT 100').all();
+    const data = logs.map(l => ({
+      ...l,
+      timestamp: formatearTimestampEcuador(l.timestamp)
+    }));
+    res.json({ ok: true, data });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }

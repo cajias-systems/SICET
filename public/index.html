@@ -176,6 +176,15 @@
               </div>
 
               <button 
+                onclick="abrirModalCambiarClave()" 
+                class="touch-btn px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-black border border-slate-700 flex items-center gap-1.5 transition"
+                title="Cambiar mi contraseña"
+              >
+                <i data-lucide="key" class="w-3.5 h-3.5 text-amber-400"></i>
+                <span class="hidden sm:inline">Clave</span>
+              </button>
+
+              <button 
                 onclick="ejecutarLogout()" 
                 class="touch-btn px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white rounded-xl text-xs font-black border border-rose-500/40 flex items-center gap-1.5 transition"
                 title="Cerrar sesión actual"
@@ -261,6 +270,22 @@
                 <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
                 <span>Carga Masiva Excel</span>
               </button>
+            </div>
+          </div>
+
+          <!-- AVISO OFICIAL DE HORARIO DE RECEPCIÓN SISTEMAS -->
+          <div class="mb-4 flex items-center gap-3 bg-amber-50 border border-amber-200 p-3.5 rounded-2xl text-amber-950 text-xs font-bold shadow-sm">
+            <div class="p-2 bg-amber-100 text-amber-700 rounded-xl flex-shrink-0">
+              <i data-lucide="clock" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <div class="font-black text-amber-950 uppercase tracking-wide flex items-center gap-2">
+                <span>Horario Oficial de Recepción en Sistemas: 08:00 a 17:00</span>
+                <span class="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full uppercase">Quito, Ecuador</span>
+              </div>
+              <div class="text-[11px] text-amber-800 font-medium mt-0.5">
+                Las solicitudes de salida para teletrabajo deben enviarse dentro de este horario. Pasadas las 17:00 el turno de Sistemas concluye y no se procesan autorizaciones.
+              </div>
             </div>
           </div>
 
@@ -1627,6 +1652,84 @@
         <button onclick="cerrarModalRechazar()" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
         <button onclick="confirmarRechazoSistemas()" class="px-4 py-2 text-sm font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow">Confirmar Rechazo</button>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CAMBIAR CONTRASEÑA -->
+  <div id="modalCambiarClave" class="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-slate-200 space-y-5 animate-in fade-in zoom-in-95">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div class="flex items-center gap-2.5">
+          <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+            <i data-lucide="key-round" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-lg font-black text-slate-900">Cambiar Contraseña</h3>
+            <p class="text-xs text-slate-500 font-medium">Seguridad de su cuenta personal</p>
+          </div>
+        </div>
+        <button type="button" onclick="cerrarModalCambiarClave()" class="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form onsubmit="guardarCambioClave(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-black uppercase text-slate-600 mb-1">Contraseña Actual *</label>
+          <input 
+            type="password" 
+            id="inputClaveActual" 
+            required 
+            placeholder="••••••••" 
+            class="w-full px-3.5 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-slate-50 focus:bg-white"
+          >
+        </div>
+
+        <div>
+          <label class="block text-xs font-black uppercase text-slate-600 mb-1">Nueva Contraseña *</label>
+          <input 
+            type="password" 
+            id="inputNuevaClave" 
+            required 
+            minlength="6"
+            placeholder="Mínimo 6 caracteres..." 
+            class="w-full px-3.5 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-slate-50 focus:bg-white"
+          >
+          <span class="text-[10px] text-slate-400 font-medium mt-1 block">Recomendado: combine letras mayúsculas, minúsculas, números y símbolos.</span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-black uppercase text-slate-600 mb-1">Confirmar Nueva Contraseña *</label>
+          <input 
+            type="password" 
+            id="inputConfirmarClave" 
+            required 
+            minlength="6"
+            placeholder="Repita la nueva contraseña..." 
+            class="w-full px-3.5 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none bg-slate-50 focus:bg-white"
+          >
+        </div>
+
+        <div id="cambioClaveErrorMsg" class="hidden p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-bold text-rose-700"></div>
+
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button 
+            type="button" 
+            onclick="cerrarModalCambiarClave()" 
+            class="touch-btn px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+          >
+            Cancelar
+          </button>
+          <button 
+            type="submit" 
+            id="btnGuardarCambioClave"
+            class="touch-btn px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20 flex items-center gap-1.5 transition"
+          >
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Actualizar Contraseña</span>
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 
