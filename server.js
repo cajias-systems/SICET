@@ -2739,7 +2739,7 @@ app.get('/api/auditoria', async (req, res) => {
     }
 
     query += ' ORDER BY id DESC LIMIT ?';
-    params.push(parseInt(limit, 10) || 250);
+    params.push(Math.min(parseInt(limit, 10) || 500, 1000));
 
     const logs = await db.prepare(query).all(...params);
     const data = logs.map(l => ({

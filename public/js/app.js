@@ -3563,11 +3563,135 @@ function setAuditoriaFechaRapida(tipo) {
   cargarAuditoria();
 }
 
-async function cargarAuditoria() {
+let auditoriaCache = [];
+let auditoriaCurrentPage = 1;
+let auditoriaPageSize = 10;
+
+function cambiarPageSizeAuditoria(val) {
+  auditoriaPageSize = (val === 'ALL' ? 'ALL' : parseInt(val, 10));
+  auditoriaCurrentPage = 1;
+  renderizarPaginaAuditoria();
+}
+
+function cambiarPaginaAuditoria(delta) {
+  const total = auditoriaCache.length;
+  const pageSize = (auditoriaPageSize === 'ALL') ? total : auditoriaPageSize;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const nextPage = auditoriaCurrentPage + delta;
+  if (nextPage >= 1 && nextPage <= totalPages) {
+    auditoriaCurrentPage = nextPage;
+    renderizarPaginaAuditoria();
+  }
+}
+
+function irAPaginaAuditoria(p) {
+  auditoriaCurrentPage = p;
+  renderizarPaginaAuditoria();
+}
+
+function renderizarPaginaAuditoria() {
   const tbody = document.getElementById('tablaAuditoria');
   const badgeConteo = document.getElementById('badgeConteoAuditoria');
+  const infoPaginacion = document.getElementById('auditoriaInfoPaginacion');
+  const btnPrev = document.getElementById('btnAuditoriaPrev');
+  const btnNext = document.getElementById('btnAuditoriaNext');
+  const contenedorNumeros = document.getElementById('auditoriaPaginasNumeros');
+
   if (!tbody) return;
 
+  const total = auditoriaCache.length;
+
+  if (total === 0) {
+    if (badgeConteo) {
+      badgeConteo.textContent = '0 registros';
+      badgeConteo.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200';
+    }
+    if (infoPaginacion) infoPaginacion.textContent = 'Mostrando 0 de 0 registros';
+    if (btnPrev) btnPrev.disabled = true;
+    if (btnNext) btnNext.disabled = true;
+    if (contenedorNumeros) contenedorNumeros.innerHTML = '';
+    tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-slate-400 font-bold">No se encontraron movimientos registrados para el filtro seleccionado.</td></tr>`;
+    return;
+  }
+
+  if (badgeConteo) {
+    badgeConteo.textContent = `${total} evento${total === 1 ? '' : 's'}`;
+    badgeConteo.className = 'px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-200 shadow-xs';
+  }
+
+  const pageSize = (auditoriaPageSize === 'ALL') ? total : auditoriaPageSize;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  if (auditoriaCurrentPage > totalPages) auditoriaCurrentPage = totalPages;
+  if (auditoriaCurrentPage < 1) auditoriaCurrentPage = 1;
+
+  const startIdx = (auditoriaPageSize === 'ALL') ? 0 : (auditoriaCurrentPage - 1) * pageSize;
+  const endIdx = (auditoriaPageSize === 'ALL') ? total : Math.min(startIdx + pageSize, total);
+  const items = auditoriaCache.slice(startIdx, endIdx);
+
+  if (infoPaginacion) {
+    infoPaginacion.textContent = `Mostrando ${startIdx + 1} a ${endIdx} de ${total} registros`;
+  }
+
+  if (btnPrev) btnPrev.disabled = (auditoriaCurrentPage <= 1);
+  if (btnNext) btnNext.disabled = (auditoriaCurrentPage >= totalPages);
+
+  if (contenedorNumeros) {
+    let htmlNumeros = '';
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) {
+        const activo = (i === auditoriaCurrentPage);
+        htmlNumeros += `
+          <button 
+            type="button" 
+            onclick="irAPaginaAuditoria(${i})" 
+            class="touch-btn w-7 h-7 rounded-lg flex items-center justify-center transition ${activo ? 'bg-blue-600 text-white font-black shadow-xs' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}"
+          >
+            ${i}
+          </button>
+        `;
+      }
+    } else {
+      htmlNumeros = `
+        <span class="px-2 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-black">
+          Pág. ${auditoriaCurrentPage} / ${totalPages}
+        </span>
+      `;
+    }
+    contenedorNumeros.innerHTML = htmlNumeros;
+  }
+
+  tbody.innerHTML = items.map(log => {
+    let badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-slate-100 text-slate-700">' + log.accion + '</span>';
+    if (log.accion.includes('FALLO')) {
+      badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-rose-100 text-rose-800 border border-rose-300">🛑 ' + log.accion + '</span>';
+    } else if (log.accion.includes('APROB')) {
+      badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">✅ ' + log.accion + '</span>';
+    } else if (log.accion.includes('SALIDA')) {
+      badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-blue-100 text-blue-800 border border-blue-300">📤 ' + log.accion + '</span>';
+    } else if (log.accion.includes('RETORNO') || log.accion.includes('ENTRADA')) {
+      badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-teal-100 text-teal-800 border border-teal-300">📥 ' + log.accion + '</span>';
+    } else if (log.accion.includes('RECHAZ') || log.accion.includes('CANCEL')) {
+      badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-300">❌ ' + log.accion + '</span>';
+    } else if (log.accion.includes('LOGIN')) {
+      badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-purple-100 text-purple-800 border border-purple-300">🔐 ' + log.accion + '</span>';
+    } else if (log.accion.includes('CLAVE')) {
+      badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-yellow-100 text-yellow-900 border border-yellow-300">🔑 ' + log.accion + '</span>';
+    }
+
+    return `
+      <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+        <td class="p-3 text-slate-700 font-mono text-xs font-bold whitespace-nowrap">${formatearTimestampEcuador(log.timestamp)}</td>
+        <td class="p-3">${badgeAccion}</td>
+        <td class="p-3 font-black text-slate-800 text-xs">${log.usuario || 'Sistema'}</td>
+        <td class="p-3 text-slate-700 font-medium text-xs leading-relaxed">${log.detalles || '--'}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function cargarAuditoria() {
   const inputFecha = document.getElementById('filtroAuditoriaFecha');
   const selectAccion = document.getElementById('filtroAuditoriaAccion');
   const inputBusqueda = document.getElementById('filtroAuditoriaBusqueda');
@@ -3577,7 +3701,7 @@ async function cargarAuditoria() {
   const q = inputBusqueda ? inputBusqueda.value.trim() : '';
 
   try {
-    let url = `/api/auditoria?limit=300`;
+    let url = `/api/auditoria?limit=1000`;
     if (fecha) url += `&fecha=${encodeURIComponent(fecha)}`;
     if (accion && accion !== 'TODAS') url += `&accion=${encodeURIComponent(accion)}`;
     if (q) url += `&q=${encodeURIComponent(q)}`;
@@ -3585,47 +3709,9 @@ async function cargarAuditoria() {
     const res = await fetchAuth(url);
     const json = await res.json();
 
-    if (!json.ok || !json.data || json.data.length === 0) {
-      if (badgeConteo) {
-        badgeConteo.textContent = '0 registros';
-        badgeConteo.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-500 border border-slate-200';
-      }
-      tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-slate-400 font-bold">No se encontraron movimientos registrados para el filtro seleccionado.</td></tr>`;
-      return;
-    }
-
-    if (badgeConteo) {
-      badgeConteo.textContent = `${json.data.length} evento${json.data.length === 1 ? '' : 's'}`;
-      badgeConteo.className = 'px-2.5 py-0.5 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-200 shadow-xs';
-    }
-
-    tbody.innerHTML = json.data.map(log => {
-      let badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-slate-100 text-slate-700">' + log.accion + '</span>';
-      if (log.accion.includes('FALLO')) {
-        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-rose-100 text-rose-800 border border-rose-300">🛑 ' + log.accion + '</span>';
-      } else if (log.accion.includes('APROB')) {
-        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">✅ ' + log.accion + '</span>';
-      } else if (log.accion.includes('SALIDA')) {
-        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-blue-100 text-blue-800 border border-blue-300">📤 ' + log.accion + '</span>';
-      } else if (log.accion.includes('RETORNO') || log.accion.includes('ENTRADA')) {
-        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-teal-100 text-teal-800 border border-teal-300">📥 ' + log.accion + '</span>';
-      } else if (log.accion.includes('RECHAZ') || log.accion.includes('CANCEL')) {
-        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-amber-100 text-amber-800 border border-amber-300">❌ ' + log.accion + '</span>';
-      } else if (log.accion.includes('LOGIN')) {
-        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-purple-100 text-purple-800 border border-purple-300">🔐 ' + log.accion + '</span>';
-      } else if (log.accion.includes('CLAVE')) {
-        badgeAccion = '<span class="px-2.5 py-1 rounded-full text-[11px] font-black uppercase bg-yellow-100 text-yellow-900 border border-yellow-300">🔑 ' + log.accion + '</span>';
-      }
-
-      return `
-        <tr class="hover:bg-slate-50 transition border-b border-slate-100">
-          <td class="p-3 text-slate-700 font-mono text-xs font-bold whitespace-nowrap">${formatearTimestampEcuador(log.timestamp)}</td>
-          <td class="p-3">${badgeAccion}</td>
-          <td class="p-3 font-black text-slate-800 text-xs">${log.usuario || 'Sistema'}</td>
-          <td class="p-3 text-slate-700 font-medium text-xs leading-relaxed">${log.detalles || '--'}</td>
-        </tr>
-      `;
-    }).join('');
+    auditoriaCache = (json.ok && Array.isArray(json.data)) ? json.data : [];
+    auditoriaCurrentPage = 1;
+    renderizarPaginaAuditoria();
   } catch (error) {
     console.error('Error cargando auditoría:', error);
   }

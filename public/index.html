@@ -1390,6 +1390,49 @@
               <tbody id="tablaAuditoria" class="divide-y divide-slate-200 text-xs bg-white"></tbody>
             </table>
           </div>
+
+          <!-- CONTROLES DE PAGINACIÓN -->
+          <div id="paginacionAuditoria" class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 px-1 text-xs">
+            <div class="flex items-center gap-2 text-slate-600 font-bold">
+              <span>Mostrar</span>
+              <select id="auditoriaPageSize" onchange="cambiarPageSizeAuditoria(this.value)" class="px-2.5 py-1.5 border border-slate-300 rounded-xl bg-slate-50 font-black text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="10" selected>10</option>
+                <option value="20">20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="ALL">Todos</option>
+              </select>
+              <span>por página</span>
+              <span class="text-slate-300">|</span>
+              <span id="auditoriaInfoPaginacion" class="text-slate-500 font-semibold">Mostrando 0 de 0</span>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <button 
+                type="button" 
+                id="btnAuditoriaPrev" 
+                onclick="cambiarPaginaAuditoria(-1)" 
+                class="touch-btn px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl border flex items-center gap-1 transition disabled:opacity-40 disabled:pointer-events-none"
+              >
+                <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                <span>Anterior</span>
+              </button>
+
+              <div id="auditoriaPaginasNumeros" class="flex items-center gap-1 font-mono font-bold text-xs">
+                <!-- Indicador de página -->
+              </div>
+
+              <button 
+                type="button" 
+                id="btnAuditoriaNext" 
+                onclick="cambiarPaginaAuditoria(1)" 
+                class="touch-btn px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl border flex items-center gap-1 transition disabled:opacity-40 disabled:pointer-events-none"
+              >
+                <span>Siguiente</span>
+                <i data-lucide="chevron-right" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
