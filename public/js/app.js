@@ -405,6 +405,15 @@ function procesarEventoTiempoReal(payload) {
       }
       break;
 
+    case 'ACTIVO_TI_MOVIMIENTO':
+      actualizarMetricasGenerales();
+      const elTI = document.getElementById('modulo-activos-ti');
+      if (elTI && !elTI.classList.contains('hidden')) {
+        cargarActivosTI();
+        cargarBitacoraMovimientosTI();
+      }
+      break;
+
     default:
       actualizarMetricasGenerales();
       break;
@@ -665,10 +674,11 @@ function configurarPermisosNavegacion(rol) {
   const navLideres = document.getElementById('nav-lideres');
   const navRetornos = document.getElementById('nav-retornos');
   const navLideresEquipos = document.getElementById('nav-lideres-equipos');
+  const navActivosTI = document.getElementById('nav-activos-ti');
   const navAuditoria = document.getElementById('nav-auditoria');
 
   // Restablecer visibilidad
-  [navGarita, navSistemas, navReporte, navLideres, navRetornos, navLideresEquipos, navAuditoria].forEach(el => {
+  [navGarita, navSistemas, navReporte, navLideres, navRetornos, navLideresEquipos, navActivosTI, navAuditoria].forEach(el => {
     if (el) el.classList.remove('hidden');
   });
 
@@ -676,7 +686,7 @@ function configurarPermisosNavegacion(rol) {
   const thGestionTI = document.getElementById('thGestionTILideres');
 
   if (rol === 'garita') {
-    // El guardia ve Garita, Retornos y Laptops Líderes (solo lectura y despacho)
+    // El guardia ve Garita, Retornos, Laptops Líderes y Activos TI (solo lectura y despacho)
     if (navSistemas) navSistemas.classList.add('hidden');
     if (navReporte) navReporte.classList.add('hidden');
     if (navLideres) navLideres.classList.add('hidden');
@@ -690,6 +700,7 @@ function configurarPermisosNavegacion(rol) {
     if (navReporte) navReporte.classList.add('hidden');
     if (navRetornos) navRetornos.classList.add('hidden');
     if (navLideresEquipos) navLideresEquipos.classList.add('hidden');
+    if (navActivosTI) navActivosTI.classList.add('hidden');
     if (navAuditoria) navAuditoria.classList.add('hidden');
     if (btnAgregarLider) btnAgregarLider.classList.add('hidden');
     if (thGestionTI) thGestionTI.classList.add('hidden');
@@ -727,13 +738,13 @@ function actualizarReloj() {
 }
 
 function cambiarModulo(moduloId) {
-  const modulos = ['garita', 'sistemas', 'reporte-lideres', 'lideres', 'retornos', 'lideres-equipos', 'auditoria'];
+  const modulos = ['garita', 'sistemas', 'reporte-lideres', 'lideres', 'retornos', 'lideres-equipos', 'activos-ti', 'auditoria'];
   modulos.forEach(m => {
     const el = document.getElementById(`modulo-${m}`);
     const nav = document.getElementById(`nav-${m}`);
     if (el) el.classList.add('hidden');
     if (nav) {
-      nav.classList.remove('bg-emerald-600', 'bg-blue-600', 'bg-purple-600', 'text-white', 'shadow-sm');
+      nav.classList.remove('bg-emerald-600', 'bg-blue-600', 'bg-purple-600', 'bg-cyan-700', 'text-white', 'shadow-sm');
       nav.classList.add('text-slate-300', 'hover:text-white', 'hover:bg-slate-800');
     }
   });
@@ -745,6 +756,7 @@ function cambiarModulo(moduloId) {
     let activeColor = 'bg-blue-600';
     if (moduloId === 'garita' || moduloId === 'retornos') activeColor = 'bg-emerald-600';
     if (moduloId === 'lideres-equipos') activeColor = 'bg-purple-600';
+    if (moduloId === 'activos-ti') activeColor = 'bg-cyan-700';
     navActivo.classList.add(activeColor, 'text-white', 'shadow-sm');
     navActivo.classList.remove('text-slate-300', 'hover:text-white', 'hover:bg-slate-800');
   }
@@ -772,6 +784,11 @@ function cambiarModulo(moduloId) {
     cargarBitacoraMovimientosLideres();
     const inputLid = document.getElementById('inputEscaneoLider');
     if (inputLid) inputLid.focus();
+  } else if (moduloId === 'activos-ti') {
+    cargarActivosTI();
+    cargarBitacoraMovimientosTI();
+    const inputTI = document.getElementById('inputEscaneoActivoTI');
+    if (inputTI) inputTI.focus();
   } else if (moduloId === 'auditoria') {
     cargarAuditoria();
   }
@@ -853,6 +870,12 @@ async function buscarEnGarita(e) {
     const json = await res.json();
 
     container.classList.remove('hidden');
+
+    // 0. Interceptar Pase Libre Corporativo de Sistemas / TI (Infraestructura)
+    if (json.ok && json.encontrado && json.es_ti && json.activo_ti) {
+      renderizarPaseLibreTIEnGarita(json.activo_ti);
+      return;
+    }
 
     // 1. Interceptar Pase Libre Autorizado de Líderes de Operaciones
     if (json.ok && json.encontrado && json.es_lider && json.lider) {
@@ -3816,6 +3839,336 @@ function showToast(message, type = 'success') {
   toastTimer = setTimeout(() => {
     toast.classList.add('translate-y-24', 'opacity-0');
   }, 4500);
+}
+
+// =============================================================
+// MODULO EXCLUSIVO: CONTROL Y PASE LIBRE CORPORATIVO ACTIVOS TI
+// =============================================================
+
+let activosTICache = [];
+
+function renderizarPaseLibreTIEnGarita(activo) {
+  const container = document.getElementById('contenedorResultadoGarita');
+  if (!container || !activo) return;
+
+  playSuccessSound();
+
+  const esFuera = (activo.estado_ubicacion === 'FUERA');
+  const proximoMovimiento = esFuera ? 'ENTRADA' : 'SALIDA';
+  const colorBorde = esFuera ? 'border-cyan-500' : 'border-blue-600';
+  const colorBg = esFuera ? 'bg-cyan-50/90' : 'bg-blue-50/90';
+  const btnColor = esFuera ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-cyan-600 hover:bg-cyan-500';
+  const accionTexto = esFuera ? 'REGISTRAR REINGRESO TI A PLANTA (ENTER)' : 'CONFIRMAR SALIDA CORPORATIVA TI (ENTER)';
+  const accionIcono = esFuera ? 'log-in' : 'log-out';
+
+  const cargoTexto = (activo.cargo || 'ADMINISTRADOR DE SISTEMAS / DEVOPS').toUpperCase();
+  const deptoTexto = activo.area || 'Sistemas / TI';
+  const cedulaTexto = activo.cedula ? `<span class="font-mono text-slate-950 bg-white px-2 py-0.5 rounded border border-cyan-200">${activo.cedula}</span>` : '<span class="italic text-slate-400">Credencial TI</span>';
+
+  container.innerHTML = `
+    <div class="${colorBg} border-4 ${colorBorde} rounded-3xl p-6 sm:p-8 shadow-2xl card-success-pulse">
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-6 border-b border-cyan-200">
+        <div class="flex items-center gap-5">
+          <div class="w-20 h-20 rounded-2xl bg-slate-950 text-cyan-400 border-2 border-cyan-500 flex items-center justify-center font-black text-3xl shadow-xl shadow-cyan-950/20">
+            <i data-lucide="cpu" class="w-10 h-10"></i>
+          </div>
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="px-3 py-1 bg-slate-950 text-cyan-400 border border-cyan-500/50 text-xs font-black uppercase rounded-full tracking-wider flex items-center gap-1.5 shadow-sm">
+                <span>🛡️ PASE LIBRE INSTITUCIONAL — DEPARTAMENTO DE SISTEMAS / TI</span>
+              </span>
+              <span class="text-xs ${esFuera ? 'text-indigo-900' : 'text-cyan-900'} font-bold">
+                Estado Actual: <strong>${esFuera ? '🔴 FUERA DE PLANTA' : '🟢 EN PLANTA (OFICINA)'}</strong>
+              </span>
+            </div>
+            <h2 class="text-2xl sm:text-4xl font-black text-slate-900 tracking-tight mt-1.5">${activo.nombre_completo || activo.nombre}</h2>
+            <div class="flex flex-wrap items-center gap-3 text-sm text-slate-700 mt-1 font-semibold">
+              <span>Identificación: ${cedulaTexto}</span>
+              <span>&bull;</span>
+              <span>Área: <strong class="text-cyan-900 font-black">${deptoTexto}</strong></span>
+              <span>&bull;</span>
+              <span>Cargo: <strong class="text-slate-900">${cargoTexto}</strong></span>
+              <span>&bull;</span>
+              <span>Paso: <strong class="text-emerald-700 font-black">Libre Permanente (TI)</strong></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-white px-6 py-4 rounded-2xl border-2 border-cyan-500 text-center shadow-md">
+          <div class="text-[11px] uppercase font-black text-cyan-900 tracking-wider">Activo TI Asignado</div>
+          <div class="text-3xl font-mono font-black text-cyan-700 mt-1 tracking-widest">${activo.codigo_maquina}</div>
+          <div class="text-xs font-bold text-slate-600 mt-0.5">${activo.modelo || 'Dell Latitude Corporativa'}</div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white/80 p-4 sm:p-5 rounded-2xl border border-cyan-300">
+        <div class="flex items-center gap-3 text-cyan-950">
+          <i data-lucide="shield-check" class="w-8 h-8 text-cyan-600 flex-shrink-0"></i>
+          <div>
+            <div class="font-black text-base">Equipo Corporativo y Funcionario TI Verificados Correctamente</div>
+            <div class="text-xs text-cyan-800 font-medium">Autorizado con pase corporativo permanente. Presione el botón o pulse ENTER para registrar en la bitácora.</div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+          <button 
+            type="button" 
+            id="btnConfirmarMovimientoActivoTIGarita"
+            onclick="confirmarMovimientoActivoTI(${activo.id}, '${activo.codigo_maquina}', '${proximoMovimiento}')"
+            class="touch-btn w-full sm:w-auto px-8 py-4 ${btnColor} text-white text-base font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 transition-all transform active:scale-95"
+            autofocus
+          >
+            <i data-lucide="${accionIcono}" class="w-6 h-6"></i>
+            <span>${accionTexto}</span>
+          </button>
+          <button onclick="limpiarGarita()" class="px-4 py-4 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-2xl text-xs font-black">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  lucide.createIcons();
+
+  setTimeout(() => {
+    const btn = document.getElementById('btnConfirmarMovimientoActivoTIGarita');
+    if (btn) btn.focus();
+  }, 100);
+}
+
+async function confirmarMovimientoActivoTI(activoId, codigoMaquina, tipo = 'SALIDA') {
+  try {
+    const guardia = currentUser ? currentUser.nombre : 'Guardia Garita';
+    const res = await fetchAuth('/api/garita/activos-ti/movimiento', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        activo_id: activoId,
+        codigo_maquina: codigoMaquina,
+        tipo_movimiento: tipo,
+        guardia,
+        observaciones: `Registro de ${tipo === 'SALIDA' ? 'salida corporativa' : 'reingreso a planta'} en Garita`
+      })
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      playErrorSound();
+      alert(json.error || 'Error al registrar movimiento del equipo TI.');
+      return;
+    }
+
+    playSuccessSound();
+    showToast(json.message, 'success');
+
+    limpiarGarita();
+    const contTI = document.getElementById('contenedorResultadoActivoTI');
+    if (contTI) contTI.classList.add('hidden');
+
+    await cargarActivosTI();
+    await cargarBitacoraMovimientosTI();
+  } catch (error) {
+    showToast('Error registrando movimiento TI: ' + error.message, 'error');
+  }
+}
+
+async function cargarActivosTI() {
+  try {
+    const res = await fetchAuth('/api/activos-ti');
+    const json = await res.json();
+    if (!json.ok || !json.data) return;
+
+    activosTICache = json.data;
+
+    const total = activosTICache.length;
+    const enPlanta = activosTICache.filter(a => a.estado_ubicacion !== 'FUERA').length;
+    const fuera = activosTICache.filter(a => a.estado_ubicacion === 'FUERA').length;
+
+    const elTotal = document.getElementById('statActivosTITotal');
+    const elEnPlanta = document.getElementById('statActivosTIEnPlanta');
+    const elFuera = document.getElementById('statActivosTIFuera');
+
+    if (elTotal) elTotal.textContent = total;
+    if (elEnPlanta) elEnPlanta.textContent = enPlanta;
+    if (elFuera) elFuera.textContent = fuera;
+
+    renderizarTablaActivosTI(activosTICache);
+  } catch (error) {
+    console.error('Error al cargar activos TI:', error);
+  }
+}
+
+function filtrarTablaActivosTI() {
+  const q = (document.getElementById('filtroActivosTI')?.value || '').toLowerCase().trim();
+  const filtrados = activosTICache.filter(a => {
+    return !q ||
+      (a.nombre && a.nombre.toLowerCase().includes(q)) ||
+      (a.nombre_completo && a.nombre_completo.toLowerCase().includes(q)) ||
+      (a.codigo_maquina && a.codigo_maquina.toLowerCase().includes(q)) ||
+      (a.cargo && a.cargo.toLowerCase().includes(q)) ||
+      (a.modelo && a.modelo.toLowerCase().includes(q));
+  });
+  renderizarTablaActivosTI(filtrados);
+}
+
+function renderizarTablaActivosTI(activos) {
+  const tbody = document.getElementById('tablaActivosTI');
+  if (!tbody) return;
+
+  if (!activos || activos.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="9" class="text-center py-8 text-slate-400 font-bold">
+          No hay activos de Sistemas / TI registrados.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = activos.map((a, index) => {
+    const esFuera = (a.estado_ubicacion === 'FUERA');
+    const badgeUbicacion = esFuera
+      ? `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-cyan-100 text-cyan-900 border border-cyan-300">
+           <span class="w-2 h-2 rounded-full bg-cyan-600 animate-pulse"></span> FUERA CON LAPTOP
+         </span>`
+      : `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+           <span class="w-2 h-2 rounded-full bg-emerald-600"></span> EN PLANTA (OFICINA)
+         </span>`;
+
+    const accionBtn = esFuera
+      ? `<button 
+           onclick="confirmarMovimientoActivoTI(${a.id}, '${a.codigo_maquina}', 'ENTRADA')"
+           class="touch-btn px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black shadow flex items-center gap-1 mx-auto transition"
+           title="Registrar reingreso a planta"
+         >
+           <i data-lucide="log-in" class="w-3.5 h-3.5"></i> Reingreso
+         </button>`
+      : `<button 
+           onclick="confirmarMovimientoActivoTI(${a.id}, '${a.codigo_maquina}', 'SALIDA')"
+           class="touch-btn px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-xs font-black shadow flex items-center gap-1 mx-auto transition"
+           title="Registrar salida corporativa"
+         >
+           <i data-lucide="log-out" class="w-3.5 h-3.5"></i> Salida
+         </button>`;
+
+    const ultimoMov = a.ultimo_movimiento_en
+      ? `<div class="text-xs font-bold text-slate-700">
+           ${formatearFechaEcuador(a.ultimo_movimiento_en)}
+           <span class="text-[10px] text-slate-400 block">${a.ultimo_guardia || 'Garita'} (${a.ultimo_movimiento_tipo || ''})</span>
+         </div>`
+      : `<span class="text-xs text-slate-400 italic">Sin movimientos</span>`;
+
+    return `
+      <tr class="hover:bg-cyan-50/40 transition">
+        <td class="py-3 px-4 font-bold text-slate-400 text-xs">${index + 1}</td>
+        <td class="py-3 px-4 font-black text-slate-900">${a.nombre_completo || a.nombre}</td>
+        <td class="py-3 px-4 text-xs font-semibold text-cyan-900">${a.cargo || 'Infraestructura TI'}</td>
+        <td class="py-3 px-4 text-xs font-bold text-slate-700">${a.area || 'Sistemas / TI'}</td>
+        <td class="py-3 px-4 font-mono font-black text-cyan-800 text-sm tracking-wide bg-cyan-50/60 rounded">${a.codigo_maquina}</td>
+        <td class="py-3 px-4 text-xs text-slate-600">${a.modelo || 'Dell Latitude'}</td>
+        <td class="py-3 px-4 text-center">${badgeUbicacion}</td>
+        <td class="py-3 px-4">${ultimoMov}</td>
+        <td class="py-3 px-4 text-center">${accionBtn}</td>
+      </tr>
+    `;
+  }).join('');
+
+  lucide.createIcons();
+}
+
+async function cargarBitacoraMovimientosTI() {
+  try {
+    const res = await fetchAuth('/api/activos-ti/movimientos');
+    const json = await res.json();
+    const tbody = document.getElementById('tablaBitacoraActivosTI');
+    if (!tbody) return;
+
+    if (!json.ok || !json.data || json.data.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center py-6 text-slate-400 italic font-medium">
+            No se han registrado movimientos de equipos de Sistemas en las últimas 24 horas.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    tbody.innerHTML = json.data.map(m => {
+      const esSalida = (m.tipo_movimiento === 'SALIDA');
+      const badge = esSalida
+        ? `<span class="px-2 py-0.5 rounded-full text-[11px] font-black bg-rose-100 text-rose-800 border border-rose-200">SALIDA TI</span>`
+        : `<span class="px-2 py-0.5 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">REINGRESO TI</span>`;
+
+      return `
+        <tr class="hover:bg-slate-50 transition">
+          <td class="py-2.5 px-4 font-mono font-bold text-slate-700">${m.fecha_hora}</td>
+          <td class="py-2.5 px-4 font-black text-slate-900">${m.nombre_funcionario}</td>
+          <td class="py-2.5 px-4 font-mono font-bold text-cyan-800">${m.codigo_maquina}</td>
+          <td class="py-2.5 px-4 text-center">${badge}</td>
+          <td class="py-2.5 px-4 text-slate-700 font-semibold">${m.guardia || 'Guardia Garita'}</td>
+          <td class="py-2.5 px-4 text-slate-500 italic">${m.observaciones || 'Tránsito corporativo'}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (error) {
+    console.error('Error al cargar bitácora TI:', error);
+  }
+}
+
+async function verificarActivoTIPorEscaneo(e) {
+  if (e) e.preventDefault();
+  const inp = document.getElementById('inputEscaneoActivoTI');
+  const term = inp?.value?.trim();
+  const cont = document.getElementById('contenedorResultadoActivoTI');
+  if (!term || !cont) return;
+
+  try {
+    const res = await fetchAuth(`/api/garita/buscar?q=${encodeURIComponent(term)}`);
+    const json = await res.json();
+
+    cont.classList.remove('hidden');
+
+    if (json.ok && json.encontrado && json.es_ti && json.activo_ti) {
+      const a = json.activo_ti;
+      const esFuera = (a.estado_ubicacion === 'FUERA');
+      const proximoMovimiento = esFuera ? 'ENTRADA' : 'SALIDA';
+      const accionTexto = esFuera ? 'REGISTRAR REINGRESO TI' : 'CONFIRMAR SALIDA TI';
+
+      cont.innerHTML = `
+        <div class="bg-slate-900 border-2 border-cyan-400 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-white">
+          <div>
+            <div class="text-xs font-black uppercase text-cyan-400 flex items-center gap-1.5">
+              <i data-lucide="check-circle" class="w-4 h-4"></i> Equipo TI Verificado
+            </div>
+            <div class="text-xl font-black mt-1">${a.nombre_completo || a.nombre} &bull; <span class="font-mono text-cyan-300">${a.codigo_maquina}</span></div>
+            <div class="text-xs text-slate-300 mt-0.5">${a.cargo || 'Infraestructura TI'} — Estado: <strong>${esFuera ? 'FUERA' : 'EN PLANTA'}</strong></div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="confirmarMovimientoActivoTI(${a.id}, '${a.codigo_maquina}', '${proximoMovimiento}')" class="px-5 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs rounded-xl shadow">
+              ${accionTexto}
+            </button>
+            <button onclick="document.getElementById('contenedorResultadoActivoTI').classList.add('hidden')" class="px-3 py-2.5 bg-slate-800 text-slate-300 rounded-xl text-xs font-bold">
+              Cerrar
+            </button>
+          </div>
+        </div>
+      `;
+      lucide.createIcons();
+      inp.value = '';
+    } else {
+      cont.innerHTML = `
+        <div class="bg-rose-950/80 border border-rose-500 p-4 rounded-2xl text-rose-200 text-xs font-bold flex items-center justify-between">
+          <span>No se encontró ningún activo de Sistemas / TI con la serie o dato: [${term}]</span>
+          <button onclick="document.getElementById('contenedorResultadoActivoTI').classList.add('hidden')" class="px-3 py-1 bg-rose-900 text-white rounded-lg">Cerrar</button>
+        </div>
+      `;
+    }
+  } catch (error) {
+    cont.innerHTML = `<div class="p-3 bg-rose-900 text-white text-xs rounded-xl">Error: ${error.message}</div>`;
+  }
 }
 
 // =============================================================

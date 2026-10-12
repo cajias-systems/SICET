@@ -761,6 +761,174 @@ app.get('/api/garita/lideres/movimientos', async (req, res) => {
   }
 });
 
+// ==========================================
+// MÓDULO EXCLUSIVO: ACTIVOS Y PERSONAL DE SISTEMAS / TI
+// ==========================================
+
+// Listar activos de Sistemas / TI
+app.get('/api/activos-ti', async (req, res) => {
+  try {
+    const { todos } = req.query;
+    let query = 'SELECT * FROM activos_ti WHERE 1=1';
+    if (!todos) {
+      query += ' AND activo = 1';
+    }
+    query += ' ORDER BY id ASC';
+    const rows = await db.prepare(query).all();
+    res.json({ ok: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Crear nuevo activo de Sistemas / TI (Solo admin TI)
+app.post('/api/activos-ti', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const {
+      nombre,
+      nombre_completo,
+      cedula = '',
+      codigo_maquina,
+      modelo = 'Dell Latitude Corporativa',
+      area = 'Sistemas / TI',
+      cargo = 'Administrador de Infraestructura & DevOps',
+      tipo_pase = 'PASE LIBRE CORPORATIVO TI'
+    } = req.body;
+
+    if (!codigo_maquina || !codigo_maquina.trim()) {
+      return res.status(400).json({ ok: false, error: 'El código de máquina es obligatorio.' });
+    }
+    const cod = codigo_maquina.trim().toUpperCase();
+    const existe = await db.prepare('SELECT id, nombre, nombre_completo FROM activos_ti WHERE UPPER(codigo_maquina) = ?').get(cod);
+    if (existe) {
+      return res.status(400).json({ ok: false, error: `El código ${cod} ya está registrado para ${existe.nombre_completo || existe.nombre}.` });
+    }
+
+    const r = await db.prepare(`
+      INSERT INTO activos_ti (nombre, nombre_completo, cedula, codigo_maquina, modelo, area, cargo, tipo_pase, estado_ubicacion, activo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'EN_PLANTA', 1)
+    `).run(
+      nombre || 'Personal TI',
+      nombre_completo || nombre || 'Personal TI',
+      cedula,
+      cod,
+      modelo,
+      area,
+      cargo,
+      tipo_pase
+    );
+
+    await registrarAuditoria(null, 'TI_ACTIVO_CREADO', req.user ? req.user.nombre : 'Sistemas', `Nuevo activo TI registrado: [${cod}] (${nombre_completo || nombre}).`);
+    broadcastEvent('ACTIVO_TI_MOVIMIENTO', { codigo: cod });
+    res.json({ ok: true, message: 'Activo de Sistemas / TI registrado exitosamente.', id: r.lastInsertRowid });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Registrar movimiento (Salida o Reingreso) de un equipo de Sistemas / TI
+app.post('/api/garita/activos-ti/movimiento', async (req, res) => {
+  try {
+    const { activo_id, codigo_maquina, tipo_movimiento, guardia = 'Guardia Garita', observaciones = '' } = req.body;
+
+    let activo = null;
+    if (activo_id) {
+      activo = await db.prepare('SELECT * FROM activos_ti WHERE id = ?').get(activo_id);
+    } else if (codigo_maquina) {
+      activo = await db.prepare('SELECT * FROM activos_ti WHERE UPPER(codigo_maquina) = ?').get(codigo_maquina.trim().toUpperCase());
+    }
+
+    if (!activo) {
+      return res.status(404).json({ ok: false, error: 'No se encontró ningún equipo de Sistemas/TI con este código.' });
+    }
+
+    let tipo = tipo_movimiento;
+    if (!tipo) {
+      tipo = (activo.estado_ubicacion === 'FUERA') ? 'ENTRADA' : 'SALIDA';
+    }
+
+    const nuevoEstado = (tipo === 'SALIDA') ? 'FUERA' : 'EN_PLANTA';
+    const now = new Date().toISOString();
+
+    await db.prepare(`
+      INSERT INTO activos_ti_movimientos (activo_id, nombre_funcionario, cargo, codigo_maquina, tipo_movimiento, guardia, fecha_hora, observaciones)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      activo.id,
+      activo.nombre_completo || activo.nombre,
+      activo.cargo || 'Administrador de Sistemas',
+      activo.codigo_maquina,
+      tipo,
+      guardia,
+      now,
+      observaciones || `Tránsito institucional ${tipo === 'SALIDA' ? 'Salida' : 'Reingreso'}`
+    );
+
+    await db.prepare(`
+      UPDATE activos_ti
+      SET estado_ubicacion = ?,
+          ultimo_movimiento_en = ?,
+          ultimo_movimiento_tipo = ?,
+          ultimo_guardia = ?
+      WHERE id = ?
+    `).run(nuevoEstado, now, tipo, guardia, activo.id);
+
+    await registrarAuditoria(
+      null,
+      `TI_${tipo}`,
+      guardia,
+      `Equipo TI ${activo.codigo_maquina} (${activo.nombre_completo || activo.nombre}) registró ${tipo === 'SALIDA' ? 'SALIDA CORPORATIVA' : 'REINGRESO A PLANTA'}. Estado actual: [${nuevoEstado}].`
+    );
+
+    broadcastEvent('ACTIVO_TI_MOVIMIENTO', {
+      codigo: activo.codigo_maquina,
+      tipo,
+      estado_ubicacion: nuevoEstado,
+      funcionario: activo.nombre_completo || activo.nombre
+    });
+
+    res.json({
+      ok: true,
+      message: `¡${tipo === 'SALIDA' ? 'Salida corporativa' : 'Reingreso a planta'} registrado con éxito para ${activo.nombre_completo || activo.nombre}!`,
+      data: {
+        id: activo.id,
+        funcionario: activo.nombre_completo || activo.nombre,
+        codigo_maquina: activo.codigo_maquina,
+        tipo_movimiento: tipo,
+        estado_ubicacion: nuevoEstado,
+        fecha_hora: now,
+        guardia
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// Obtener bitácora de movimientos de equipos TI
+app.get('/api/activos-ti/movimientos', async (req, res) => {
+  try {
+    const { fecha } = req.query;
+    let query = 'SELECT * FROM activos_ti_movimientos WHERE 1=1';
+    const params = [];
+    if (fecha) {
+      query += ' AND fecha_hora LIKE ?';
+      params.push(`${fecha}%`);
+    } else {
+      query += " AND fecha_hora >= datetime('now', '-24 hours')";
+    }
+    query += ' ORDER BY id DESC LIMIT 100';
+    const rows = await db.prepare(query).all(...params);
+    const data = rows.map(m => ({
+      ...m,
+      fecha_hora: formatearTimestampEcuador(m.fecha_hora)
+    }));
+    res.json({ ok: true, data });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // Verificar si una máquina escaneada pertenece al líder indicado
 app.post('/api/garita/lideres/verificar-coincidencia', async (req, res) => {
   try {
@@ -786,11 +954,14 @@ app.post('/api/garita/lideres/verificar-coincidencia', async (req, res) => {
       });
     } else {
       // Buscar a quién pertenece la máquina escaneada
+      const itOwner = await db.prepare('SELECT * FROM activos_ti WHERE UPPER(codigo_maquina) = ?').get(normEscaneado);
       const otroLider = await db.prepare('SELECT * FROM lideres_directorio WHERE UPPER(codigo_maquina) = ?').get(normEscaneado);
       const asesor = await db.prepare('SELECT * FROM solicitudes WHERE UPPER(codigo_maquina) = ? ORDER BY id DESC').get(normEscaneado);
 
       let dueno = 'No registrada en el sistema';
-      if (otroLider) {
+      if (itOwner) {
+        dueno = `Pertenece a Personal de Sistemas / TI: ${itOwner.nombre_completo || itOwner.nombre} (${itOwner.codigo_maquina})`;
+      } else if (otroLider) {
         dueno = `Pertenece a otro líder: ${otroLider.nombre_completo || otroLider.nombre}`;
       } else if (asesor) {
         dueno = `Pertenece al asesor: ${asesor.nombres} (Líder: ${asesor.lider_nombre})`;
@@ -1849,6 +2020,21 @@ app.get('/api/garita/buscar', async (req, res) => {
     const term = q.trim();
     const today = getFechaLocalEcuador();
 
+    // 0. Verificar si el término coincide con equipo corporativo de Sistemas / TI (Infraestructura)
+    const itMatch = await db.prepare(`
+      SELECT * FROM activos_ti 
+      WHERE (UPPER(codigo_maquina) = ? OR LOWER(nombre) = LOWER(?) OR LOWER(nombre_completo) = LOWER(?) OR cedula = ?) AND activo = 1
+    `).get(term.toUpperCase(), term, term, term);
+
+    if (itMatch) {
+      return res.json({
+        ok: true,
+        encontrado: true,
+        es_ti: true,
+        activo_ti: itMatch
+      });
+    }
+
     // 1. Verificar si el término coincide con la laptop asignada a un Líder oficial o personal autorizado
     const liderMatch = await db.prepare(`
       SELECT * FROM lideres_directorio 
@@ -2026,9 +2212,46 @@ app.post('/api/garita/retornar', async (req, res) => {
     let solicitud = null;
     let yaRetornado = null;
 
-    // Si se envía código de máquina o cédula, verificar primero si es laptop de un líder
+    // Si se envía código de máquina o cédula, verificar primero si es equipo TI o de un líder
     const searchCode = (codigo_maquina || cedula || '').trim().toUpperCase();
     if (searchCode) {
+      // 0. Verificar si es equipo de Sistemas / TI
+      const itMatch = await db.prepare("SELECT * FROM activos_ti WHERE UPPER(codigo_maquina) = ? AND activo = 1").get(searchCode);
+      if (itMatch) {
+        const now = new Date().toISOString();
+        await db.prepare(`
+          INSERT INTO activos_ti_movimientos (activo_id, nombre_funcionario, cargo, codigo_maquina, tipo_movimiento, guardia, fecha_hora, observaciones)
+          VALUES (?, ?, ?, ?, 'ENTRADA', ?, ?, 'Reingreso registrado desde pantalla de Retornos')
+        `).run(itMatch.id, itMatch.nombre_completo || itMatch.nombre, itMatch.cargo || 'Administrador de Sistemas', itMatch.codigo_maquina, retornado_por, now);
+
+        await db.prepare(`
+          UPDATE activos_ti 
+          SET estado_ubicacion = 'EN_PLANTA', ultimo_movimiento_en = ?, ultimo_movimiento_tipo = 'ENTRADA', ultimo_guardia = ?
+          WHERE id = ?
+        `).run(now, retornado_por, itMatch.id);
+
+        await registrarAuditoria(null, 'TI_ENTRADA', retornado_por, `Equipo TI ${itMatch.codigo_maquina} (${itMatch.nombre_completo || itMatch.nombre}) reingresó a planta.`);
+        broadcastEvent('ACTIVO_TI_MOVIMIENTO', { codigo: itMatch.codigo_maquina, tipo: 'ENTRADA', estado_ubicacion: 'EN_PLANTA' });
+
+        return res.json({
+          ok: true,
+          es_ti: true,
+          message: `¡Reingreso corporativo confirmado exitosamente! El equipo de Sistemas / TI ${itMatch.nombre_completo || itMatch.nombre} reingresa a oficina.`,
+          data: {
+            id: itMatch.id,
+            nombres: itMatch.nombre_completo || itMatch.nombre,
+            cedula: 'SISTEMAS TI',
+            codigo_maquina: itMatch.codigo_maquina,
+            modelo: itMatch.modelo,
+            area: itMatch.area || 'Sistemas / TI',
+            nuevo_estado: 'EN_PLANTA',
+            hora_retorno: now,
+            retornado_por
+          }
+        });
+      }
+
+      // 1. Verificar si es laptop de un líder
       const liderMatch = await db.prepare("SELECT * FROM lideres_directorio WHERE UPPER(codigo_maquina) = ? AND activo = 1").get(searchCode);
       if (liderMatch) {
         const now = new Date().toISOString();

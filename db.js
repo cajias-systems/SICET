@@ -147,6 +147,43 @@ async function initDb() {
       );
     `);
 
+    // TABLA EXCLUSIVA PARA ACTIVOS Y PERSONAL DE SISTEMAS / TI (SEPARADO DE LÍDERES Y ASESORES)
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS activos_ti (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL,
+        nombre_completo TEXT NOT NULL,
+        cedula TEXT DEFAULT '',
+        codigo_maquina TEXT NOT NULL UNIQUE,
+        modelo TEXT DEFAULT 'Dell Latitude Corporativa',
+        area TEXT DEFAULT 'Sistemas / TI',
+        cargo TEXT DEFAULT 'Administrador de Infraestructura & DevOps',
+        tipo_pase TEXT DEFAULT 'PASE LIBRE CORPORATIVO TI',
+        estado_ubicacion TEXT DEFAULT 'EN_PLANTA',
+        ultimo_movimiento_en TEXT,
+        ultimo_movimiento_tipo TEXT,
+        ultimo_guardia TEXT,
+        observaciones TEXT DEFAULT '',
+        activo INTEGER DEFAULT 1,
+        created_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
+
+    // BITÁCORA EXCLUSIVA DE MOVIMIENTOS DE EQUIPOS TI
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS activos_ti_movimientos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        activo_id INTEGER,
+        nombre_funcionario TEXT NOT NULL,
+        cargo TEXT DEFAULT 'Administrador de Infraestructura & DevOps',
+        codigo_maquina TEXT NOT NULL,
+        tipo_movimiento TEXT NOT NULL,
+        guardia TEXT DEFAULT 'Guardia Garita',
+        fecha_hora TEXT DEFAULT (datetime('now', 'localtime')),
+        observaciones TEXT
+      );
+    `);
+
     // Migraciones automáticas seguras para lideres_directorio
     const safeAddColumns = [
       "ALTER TABLE lideres_directorio ADD COLUMN cedula TEXT DEFAULT ''",
@@ -209,6 +246,26 @@ async function initDb() {
       sql: 'INSERT OR IGNORE INTO usuarios (username, password, nombre, rol, area) VALUES (?, ?, ?, ?, ?)',
       args: ['lider', 'lider123', 'Líder de Área', 'lider', 'Cobranzas']
     });
+
+    // Sembrar equipo institucional de Sistemas (DavidDevOps / David Sistemas)
+    const checkDavidTi = await client.execute("SELECT COUNT(*) as c FROM activos_ti WHERE UPPER(codigo_maquina) = '4WW20N2'");
+    if (checkDavidTi.rows[0].c === 0) {
+      await client.execute({
+        sql: `INSERT OR IGNORE INTO activos_ti 
+              (nombre, nombre_completo, codigo_maquina, modelo, area, cargo, tipo_pase, estado_ubicacion, activo) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, 'EN_PLANTA', 1)`,
+        args: [
+          'David Sistemas',
+          'DavidDevOps — Administrador TI',
+          '4WW20N2',
+          'Dell Latitude Corporativa',
+          'Sistemas / TI',
+          'Administrador de Infraestructura & DevOps',
+          'PASE LIBRE CORPORATIVO TI'
+        ]
+      });
+      console.log('[DB] Activo TI 4WW20N2 registrado para David Sistemas.');
+    }
 
     console.log('[DB] Esquema y tablas verificadas correctamente.');
   } catch (err) {

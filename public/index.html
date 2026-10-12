@@ -230,6 +230,11 @@
             <span>Laptops Líderes (Paso Libre)</span>
           </button>
 
+          <button onclick="cambiarModulo('activos-ti')" id="nav-activos-ti" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-slate-300 hover:text-white hover:bg-slate-800">
+            <i data-lucide="cpu" class="w-4 h-4 text-cyan-400"></i>
+            <span>Activos TI & Sistemas</span>
+          </button>
+
           <button onclick="cambiarModulo('auditoria')" id="nav-auditoria" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-slate-300 hover:text-white hover:bg-slate-800">
             <i data-lucide="activity" class="w-4 h-4"></i>
             <span>Trazabilidad & Logs</span>
@@ -1260,6 +1265,198 @@
                 </tr>
               </thead>
               <tbody id="tablaBitacoraLideres" class="divide-y divide-slate-100 font-medium text-xs">
+                <!-- Se llena dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- MODULO 8: ACTIVOS TI & PERSONAL DE SISTEMAS (EXCLUSIVO ITAM)  -->
+      <!-- ============================================================= -->
+      <section id="modulo-activos-ti" class="hidden space-y-6">
+        
+        <!-- CABECERA EJECUTIVA DE INFRAESTRUCTURA TI -->
+        <div class="bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-950 text-white p-6 sm:p-8 rounded-3xl shadow-2xl relative overflow-hidden border border-cyan-500/20">
+          <div class="absolute -right-8 -bottom-8 opacity-10 pointer-events-none">
+            <i data-lucide="cpu" class="w-72 h-72 text-cyan-400"></i>
+          </div>
+
+          <div class="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            <div class="max-w-2xl">
+              <div class="flex flex-wrap items-center gap-2 mb-2">
+                <span class="px-3 py-0.5 bg-cyan-400 text-slate-950 text-xs font-black uppercase rounded-full shadow-sm flex items-center gap-1.5">
+                  <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                  Departamento de Sistemas / TI
+                </span>
+                <span class="px-3 py-0.5 bg-blue-900/80 text-cyan-200 text-xs font-bold rounded-full border border-cyan-500/30">
+                  Infraestructura & DevOps
+                </span>
+                <span class="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 text-[11px] font-black rounded-full border border-emerald-500/40">
+                  Pase Libre Corporativo
+                </span>
+              </div>
+              <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-3">
+                <span>Control de Activos TI & Personal de Sistemas</span>
+              </h1>
+              <p class="text-slate-300 text-xs sm:text-sm mt-1.5 leading-relaxed">
+                Gestión y trazabilidad de laptops y activos corporativos asignados al personal de tecnología. 
+                Cuentan con <strong>pase libre permanente</strong> para soporte de infraestructura, guardias y teletrabajo sin requerir solicitudes de asesores.
+              </p>
+            </div>
+
+            <!-- ESCÁNER RÁPIDO CON PISTOLA DE CÓDIGOS PARA TI -->
+            <div class="bg-slate-900/80 backdrop-blur-md p-4 rounded-2xl border border-cyan-500/30 shadow-xl w-full lg:w-96 space-y-3">
+              <div class="text-xs font-black uppercase tracking-wider text-cyan-300 flex items-center gap-1.5">
+                <i data-lucide="scan-line" class="w-4 h-4"></i>
+                <span>Escaneo Pistola Garita (Activos TI)</span>
+              </div>
+              <form onsubmit="verificarActivoTIPorEscaneo(event)" class="flex gap-2">
+                <input 
+                  type="text" 
+                  id="inputEscaneoActivoTI" 
+                  autocomplete="off"
+                  placeholder="Escanear serie laptop TI..." 
+                  class="flex-1 px-3.5 py-2.5 text-sm font-mono font-black uppercase bg-slate-950 text-cyan-300 border border-cyan-500/50 rounded-xl focus:ring-2 focus:ring-cyan-400 focus:outline-none placeholder:text-slate-500"
+                >
+                <button type="submit" class="touch-btn px-4 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs rounded-xl shadow flex items-center gap-1.5 transition">
+                  <i data-lucide="search" class="w-4 h-4"></i>
+                  <span>Buscar</span>
+                </button>
+              </form>
+              <div class="text-[11px] text-slate-400 flex items-center justify-between">
+                <span>Apunte al código de barras del equipo TI</span>
+                <span class="font-mono text-cyan-400 font-bold">4WW20N2</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- CONTENEDOR DE RESULTADO DE VERIFICACIÓN TI -->
+          <div id="contenedorResultadoActivoTI" class="mt-6 hidden transition-all duration-300">
+            <!-- Se llena dinámicamente -->
+          </div>
+        </div>
+
+        <!-- TARJETAS DE MÉTRICAS ACTIVOS TI -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
+            <div>
+              <div class="text-xs font-bold text-slate-500 uppercase tracking-wider">Activos TI Registrados</div>
+              <div id="statActivosTITotal" class="text-2xl font-black text-slate-900 mt-1">1</div>
+              <div class="text-[11px] text-slate-400 font-medium">Equipos oficiales de tecnología</div>
+            </div>
+            <div class="w-12 h-12 rounded-2xl bg-cyan-100 text-cyan-700 flex items-center justify-center font-black">
+              <i data-lucide="cpu" class="w-6 h-6"></i>
+            </div>
+          </div>
+
+          <div class="bg-emerald-50/70 p-5 rounded-3xl border-2 border-emerald-300/80 shadow-sm flex items-center justify-between">
+            <div>
+              <div class="text-xs font-bold text-emerald-800 uppercase tracking-wider">Equipos TI en Planta</div>
+              <div id="statActivosTIEnPlanta" class="text-2xl font-black text-emerald-700 mt-1">1</div>
+              <div class="text-[11px] text-emerald-600 font-medium">En oficinas de Sistemas / TI</div>
+            </div>
+            <div class="w-12 h-12 rounded-2xl bg-emerald-200 text-emerald-900 flex items-center justify-center font-black">
+              <i data-lucide="building-2" class="w-6 h-6"></i>
+            </div>
+          </div>
+
+          <div class="bg-cyan-50/70 p-5 rounded-3xl border-2 border-cyan-300/80 shadow-sm flex items-center justify-between">
+            <div>
+              <div class="text-xs font-bold text-cyan-800 uppercase tracking-wider">Equipos TI Fuera / Casa</div>
+              <div id="statActivosTIFuera" class="text-2xl font-black text-cyan-700 mt-1">0</div>
+              <div class="text-[11px] text-cyan-600 font-medium">Teletrabajo / Guardia activa</div>
+            </div>
+            <div class="w-12 h-12 rounded-2xl bg-cyan-200 text-cyan-900 flex items-center justify-center font-black">
+              <i data-lucide="laptop" class="w-6 h-6"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- TABLA DE ACTIVOS TI -->
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-2xl bg-cyan-100 text-cyan-900 flex items-center justify-center font-black">
+                <i data-lucide="server" class="w-6 h-6"></i>
+              </div>
+              <div>
+                <h2 class="font-black text-lg text-slate-900">Nómina de Activos y Personal de Sistemas / TI</h2>
+                <p class="text-xs text-slate-500 font-medium">Equipos autorizados con pase libre permanente de infraestructura técnica.</p>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <div class="relative">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                <input 
+                  type="text" 
+                  id="filtroActivosTI" 
+                  placeholder="Buscar serie o funcionario..." 
+                  oninput="filtrarTablaActivosTI()" 
+                  class="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:outline-none w-56"
+                >
+              </div>
+              <button onclick="cargarActivosTI()" class="touch-btn text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+              </button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="text-xs uppercase bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                <tr>
+                  <th class="py-3 px-4">#</th>
+                  <th class="py-3 px-4">Funcionario TI</th>
+                  <th class="py-3 px-4">Cargo Corporativo</th>
+                  <th class="py-3 px-4">Departamento</th>
+                  <th class="py-3 px-4">Serie Laptop</th>
+                  <th class="py-3 px-4">Modelo</th>
+                  <th class="py-3 px-4 text-center">Ubicación Actual</th>
+                  <th class="py-3 px-4">Último Movimiento</th>
+                  <th class="py-3 px-4 text-center">Acción / Tránsito</th>
+                </tr>
+              </thead>
+              <tbody id="tablaActivosTI" class="divide-y divide-slate-100 font-medium">
+                <!-- Se llena dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- BITÁCORA DE MOVIMIENTOS TI -->
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-2xl bg-slate-100 text-slate-800 flex items-center justify-center font-black">
+                <i data-lucide="activity" class="w-6 h-6"></i>
+              </div>
+              <div>
+                <h2 class="font-black text-lg text-slate-900">Bitácora de Salidas y Reingresos de Activos TI</h2>
+                <p class="text-xs text-slate-500 font-medium">Registro de trazabilidad y auditoría de equipos de Sistemas en Garita.</p>
+              </div>
+            </div>
+            <button onclick="cargarBitacoraMovimientosTI()" class="touch-btn text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="text-xs uppercase bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                <tr>
+                  <th class="py-3 px-4">Fecha y Hora</th>
+                  <th class="py-3 px-4">Funcionario TI</th>
+                  <th class="py-3 px-4">Serie Laptop</th>
+                  <th class="py-3 px-4 text-center">Tipo Movimiento</th>
+                  <th class="py-3 px-4">Guardia Verificador</th>
+                  <th class="py-3 px-4">Observaciones</th>
+                </tr>
+              </thead>
+              <tbody id="tablaBitacoraActivosTI" class="divide-y divide-slate-100 font-medium text-xs">
                 <!-- Se llena dinámicamente -->
               </tbody>
             </table>
