@@ -63,7 +63,7 @@ function formatearTimestampEcuador(raw) {
   }).format(dateObj);
 }
 
-// Validación de horario de recepción para líderes (08:00 a 17:00, hora de Ecuador)
+// Validación de horario de recepción para líderes (08:00 a 17:30, hora de Ecuador)
 function verificarHorarioRecepcionLideres(userRole) {
   if (userRole === 'sistemas') {
     return { permitido: true }; // Sistemas tiene permiso las 24 horas para operar y autorizar
@@ -80,14 +80,14 @@ function verificarHorarioRecepcionLideres(userRole) {
   }
 
   const totalMin = hour * 60 + minute;
-  const inicio = 8 * 60; // 08:00
-  const fin = 17 * 60;   // 17:00 (5:00 PM)
+  const inicio = 8 * 60;        // 08:00 AM
+  const fin = 17 * 60 + 30;     // 17:30 (5:30 PM)
 
   if (totalMin < inicio || totalMin > fin) {
     const horaStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
     return {
       permitido: false,
-      error: `Horario fuera de turno (${horaStr}): Las solicitudes de salida para teletrabajo únicamente se reciben de 08:00 a 17:00 (hora oficial de Ecuador). El área de Sistemas ha concluido su turno.`
+      error: `Horario fuera de turno (${horaStr}): Las solicitudes de salida para teletrabajo únicamente se reciben de 08:00 a 17:30 (hora oficial de Ecuador). El área de Sistemas ha concluido su turno de recepción.`
     };
   }
 
