@@ -4902,6 +4902,10 @@ async function guardarCambioClave(e) {
     playErrorSound();
     showToast(error.message, 'error');
   } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // =========================================================================
 // RASTREADOR DE EQUIPOS Y ASESORES EN TIEMPO REAL (SISTEMAS TI)
 // =========================================================================
