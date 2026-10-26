@@ -282,7 +282,7 @@ function procesarEventoTiempoReal(payload) {
       } else if (rol === 'lider') {
         if (data.lider_nombre === currentUser.nombre || data.lider === currentUser.nombre) {
           cargarSolicitudesLiderHoy();
-          cargarMiEquipoHabitual();
+          if (selectedAsesoresHabituales.size === 0) cargarMiEquipoHabitual();
           actualizarMetricasGenerales();
         }
       }
@@ -299,7 +299,7 @@ function procesarEventoTiempoReal(payload) {
       } else if (rol === 'lider') {
         if (data.lider === currentUser.nombre) {
           cargarSolicitudesLiderHoy();
-          cargarMiEquipoHabitual();
+          if (selectedAsesoresHabituales.size === 0) cargarMiEquipoHabitual();
           actualizarMetricasGenerales();
         }
       }
@@ -319,7 +319,7 @@ function procesarEventoTiempoReal(payload) {
           playSuccessSound();
           showToast(`🎉 ¡Sistemas APROBÓ las solicitudes de su equipo!`, 'success');
           cargarSolicitudesLiderHoy();
-          cargarMiEquipoHabitual();
+          if (selectedAsesoresHabituales.size === 0) cargarMiEquipoHabitual();
           actualizarMetricasGenerales();
         }
       } else if (rol === 'sistemas') {
@@ -335,7 +335,7 @@ function procesarEventoTiempoReal(payload) {
           playErrorSound();
           showToast(`❌ Sistemas rechazó solicitud: ${data.motivo || 'Ver observaciones'}`, 'error');
           cargarSolicitudesLiderHoy();
-          cargarMiEquipoHabitual();
+          if (selectedAsesoresHabituales.size === 0) cargarMiEquipoHabitual();
           actualizarMetricasGenerales();
         }
       } else if (rol === 'garita') {
@@ -355,7 +355,7 @@ function procesarEventoTiempoReal(payload) {
         cargarTodoGarita();
       } else if (rol === 'lider') {
         cargarSolicitudesLiderHoy();
-        cargarMiEquipoHabitual();
+        if (selectedAsesoresHabituales.size === 0) cargarMiEquipoHabitual();
         actualizarMetricasGenerales();
       }
       break;
@@ -681,7 +681,7 @@ function mostrarAplicacion() {
       const vistaLider = document.getElementById('modulo-lideres');
       if (vistaLider && !vistaLider.classList.contains('hidden')) {
         cargarSolicitudesLiderHoy();
-        cargarMiEquipoHabitual();
+        // NO recargar la nómina habitual cada 20s para proteger los checks activos del líder
       }
     }, 20000);
   }
