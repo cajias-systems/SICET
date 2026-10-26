@@ -99,7 +99,20 @@ function verificarHorarioRecepcionLideres(userRole) {
 // ==========================================
 const sseClients = new Set();
 
+// Caché en memoria para estadísticas (ahorro crítico de ancho de banda saliente hacia Turso)
+let statsCache = {
+  data: null,
+  fecha: null,
+  timestamp: 0
+};
+
+function invalidarStatsCache() {
+  statsCache.data = null;
+  statsCache.timestamp = 0;
+}
+
 function broadcastEvent(type, data = {}) {
+  invalidarStatsCache();
   const payload = JSON.stringify({ type, data, timestamp: new Date().toISOString() });
   for (const client of sseClients) {
     try {
@@ -2881,40 +2894,57 @@ app.get('/api/hoja-control', async (req, res) => {
   }
 });
 
-// 17. Estadísticas del Dashboard
+// 17. Estadísticas del Dashboard (Optimizado con caché en memoria y 1 sola consulta a Turso)
 app.get('/api/stats', async (req, res) => {
   try {
     const today = getFechaLocalEcuador();
     const fecha = req.query.fecha || today;
+    const now = Date.now();
 
-    const totalHoyRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? OR (estado = 'PENDIENTE' AND created_at >= datetime('now', '-48 hours'))").get(fecha);
-    const pendientesRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE estado = 'PENDIENTE' AND (fecha_salida = ? OR created_at >= datetime('now', '-48 hours'))").get(fecha);
-    const aprobadasRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'APROBADO'").get(fecha);
-    const salieronRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'SALIO'").get(fecha);
-    const retornadosRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'RETORNADO'").get(fecha);
-    const rechazadosRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE fecha_salida = ? AND estado = 'RECHAZADO'").get(fecha);
-    const equiposAfueraTotalRow = await db.prepare("SELECT COUNT(*) as count FROM solicitudes WHERE estado = 'SALIO'").get();
+    // Servir desde caché si tiene menos de 10 segundos y es la misma fecha
+    if (statsCache.data && statsCache.fecha === fecha && (now - statsCache.timestamp < 10000)) {
+      return res.json({
+        ok: true,
+        fecha,
+        cached: true,
+        stats: statsCache.data
+      });
+    }
 
-    const totalHoy = totalHoyRow ? totalHoyRow.count : 0;
-    const pendientes = pendientesRow ? pendientesRow.count : 0;
-    const aprobadas = aprobadasRow ? aprobadasRow.count : 0;
-    const salieron = salieronRow ? salieronRow.count : 0;
-    const retornados = retornadosRow ? retornadosRow.count : 0;
-    const rechazados = rechazadosRow ? rechazadosRow.count : 0;
-    const equiposAfueraTotal = equiposAfueraTotalRow ? equiposAfueraTotalRow.count : 0;
+    // 1 sola consulta SQL consolidada (reduce un 85% el tráfico saliente a Turso)
+    const row = await db.prepare(`
+      SELECT 
+        COUNT(CASE WHEN fecha_salida = ? OR (estado = 'PENDIENTE' AND created_at >= datetime('now', '-48 hours')) THEN 1 END) as totalHoy,
+        COUNT(CASE WHEN estado = 'PENDIENTE' AND (fecha_salida = ? OR created_at >= datetime('now', '-48 hours')) THEN 1 END) as pendientes,
+        COUNT(CASE WHEN fecha_salida = ? AND estado = 'APROBADO' THEN 1 END) as aprobadas,
+        COUNT(CASE WHEN fecha_salida = ? AND estado = 'SALIO' THEN 1 END) as salieron,
+        COUNT(CASE WHEN fecha_salida = ? AND estado = 'RETORNADO' THEN 1 END) as retornados,
+        COUNT(CASE WHEN fecha_salida = ? AND estado = 'RECHAZADO' THEN 1 END) as rechazados,
+        COUNT(CASE WHEN estado = 'SALIO' THEN 1 END) as equiposAfueraTotal
+      FROM solicitudes
+    `).get(fecha, fecha, fecha, fecha, fecha, fecha);
+
+    const stats = {
+      totalHoy: row ? Number(row.totalHoy) || 0 : 0,
+      pendientes: row ? Number(row.pendientes) || 0 : 0,
+      aprobadas: row ? Number(row.aprobadas) || 0 : 0,
+      salieron: row ? Number(row.salieron) || 0 : 0,
+      retornados: row ? Number(row.retornados) || 0 : 0,
+      rechazados: row ? Number(row.rechazados) || 0 : 0,
+      equiposAfueraTotal: row ? Number(row.equiposAfueraTotal) || 0 : 0
+    };
+
+    // Actualizar caché
+    statsCache = {
+      data: stats,
+      fecha,
+      timestamp: now
+    };
 
     res.json({
       ok: true,
       fecha,
-      stats: {
-        totalHoy,
-        pendientes,
-        aprobadas,
-        salieron,
-        retornados,
-        rechazados,
-        equiposAfueraTotal
-      }
+      stats
     });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });

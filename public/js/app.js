@@ -199,13 +199,13 @@ function iniciarSuscripcionEventosTiempoReal() {
     actualizarIndicadorTiempoReal('desconectado');
   }
 
-  // Heartbeat de seguridad: cada 30s verifica y refresca métricas solo si la pestaña está activa
+  // Heartbeat de seguridad: cada 60s verifica y refresca métricas solo si la pestaña está activa
   if (!fallbackHeartbeatTimer) {
     fallbackHeartbeatTimer = setInterval(() => {
       if (currentUser && !document.hidden) {
         actualizarMetricasGenerales();
       }
-    }, 30000);
+    }, 60000);
   }
 }
 
