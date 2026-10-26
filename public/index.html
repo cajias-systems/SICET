@@ -584,6 +584,10 @@
                 <button onclick="cargarTodoGarita()" class="touch-btn text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl flex items-center gap-1.5 transition">
                   <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Actualizar
                 </button>
+                <button onclick="confirmarDespachoMasivoContingencia()" id="btnContingenciaGarita" class="touch-btn text-xs font-black text-amber-950 bg-amber-400 hover:bg-amber-300 border border-amber-500 px-3.5 py-2 rounded-xl flex items-center gap-1.5 shadow-sm transition" title="Despacha de golpe todas las laptops aprobadas en caso de contingencia o corte de internet">
+                  <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-900"></i>
+                  <span>Despacho Masivo (Contingencia)</span>
+                </button>
               </div>
             </div>
 
@@ -751,6 +755,10 @@
               <button onclick="depurarNoSalidosHoy()" class="touch-btn px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs rounded-xl shadow-sm flex items-center gap-1.5 transition" title="Cierre de Turno: Anula únicamente autorizaciones con más de 3 horas que nunca fueron retiradas a garita">
                 <i data-lucide="clock-alert" class="w-4 h-4 text-amber-600"></i>
                 <span>Cierre Turno (Depurar)</span>
+              </button>
+              <button onclick="confirmarDespachoMasivoContingencia()" id="btnContingenciaSistemas" class="touch-btn px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm rounded-xl shadow flex items-center gap-2 transition" title="Despacho masivo inmediato a Garita en caso de contingencia o corte de internet">
+                <i data-lucide="alert-triangle" class="w-4 h-4 text-slate-950"></i>
+                <span>Despacho Contingencia</span>
               </button>
               <button onclick="abrirModalDirectorioLideres()" class="touch-btn px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-sm rounded-xl shadow flex items-center gap-2" title="Administrar los 27 líderes oficiales">
                 <i data-lucide="user-plus" class="w-4 h-4"></i>

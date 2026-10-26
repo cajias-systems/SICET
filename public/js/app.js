@@ -199,15 +199,25 @@ function iniciarSuscripcionEventosTiempoReal() {
     actualizarIndicadorTiempoReal('desconectado');
   }
 
-  // Heartbeat de seguridad: cada 20s verifica y refresca métricas por si la red tuvo micro-cortes
+  // Heartbeat de seguridad: cada 30s verifica y refresca métricas solo si la pestaña está activa
   if (!fallbackHeartbeatTimer) {
     fallbackHeartbeatTimer = setInterval(() => {
-      if (currentUser) {
+      if (currentUser && !document.hidden) {
         actualizarMetricasGenerales();
       }
-    }, 20000);
+    }, 30000);
   }
 }
+
+// Ahorro inteligente de ancho de banda en Render: no gastar cuota cuando la pestaña está minimizada o en segundo plano
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && currentUser) {
+    if (!realtimeEventSource) {
+      iniciarSuscripcionEventosTiempoReal();
+    }
+    actualizarMetricasGenerales();
+  }
+});
 
 function detenerSuscripcionEventosTiempoReal() {
   if (realtimeEventSource) {
@@ -366,6 +376,20 @@ function procesarEventoTiempoReal(payload) {
           cargarMiEquipoHabitual();
           actualizarMetricasGenerales();
         }
+      }
+      break;
+
+    case 'DESPACHO_MASIVO_CONTINGENCIA':
+      showToast(`🚨 Se ejecutó despacho masivo por contingencia (${data.total || 0} equipos a teletrabajo)`, 'warning');
+      if (rol === 'sistemas') {
+        cargarSolicitudesSistemas();
+        actualizarMetricasGenerales();
+      } else if (rol === 'garita') {
+        cargarTodoGarita();
+        actualizarMetricasGenerales();
+      } else if (rol === 'lider') {
+        cargarSolicitudesLiderHoy();
+        actualizarMetricasGenerales();
       }
       break;
 
@@ -1133,6 +1157,65 @@ function limpiarGarita() {
     input.focus();
   }
   if (container) container.classList.add('hidden');
+}
+
+// Despacho masivo por contingencia de edificio o corte de internet
+async function confirmarDespachoMasivoContingencia() {
+  const operadorNombre = (currentUser && currentUser.nombre) ? currentUser.nombre : 'David Sistemas';
+  
+  const mensajeAlerta = 
+    `🚨 ATENCIÓN: PROTOCOLO DE CONTINGENCIA / TELETRABAJO MASIVO\n\n` +
+    `¿Desea despachar de forma masiva e inmediata TODAS las laptops que esperan salida en Garita?\n\n` +
+    `• Esta acción cambiará a estado 'SALIO' todas las solicitudes actualmente aprobadas.\n` +
+    `• Quedarán formalmente registradas como entregadas para teletrabajo por contingencia.\n` +
+    `• Se guardará el registro oficial de auditoría con fecha y hora actual.\n\n` +
+    `¿Confirmar salida masiva ahora?`;
+
+  if (!confirm(mensajeAlerta)) return;
+
+  try {
+    showToast('Procesando despacho masivo por contingencia...', 'info');
+
+    const res = await fetchAuth('/api/garita/despacho-masivo-contingencia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operador: operadorNombre,
+        motivo: 'Corte de Internet / Evacuación a Teletrabajo'
+      })
+    });
+
+    const json = await res.json();
+
+    if (!json.ok) {
+      playErrorSound();
+      alert(json.error || 'Ocurrió un error al ejecutar el despacho masivo.');
+      return;
+    }
+
+    if (json.count === 0) {
+      showToast('No había solicitudes pendientes de despacho.', 'info');
+      alert('ℹ️ No hay solicitudes aprobadas esperando retiro en Garita en este momento.');
+      return;
+    }
+
+    playSuccessSound();
+    alert(`✅ ${json.message}`);
+    showToast(json.message, 'success');
+
+    // Refrescar vistas inmediatamente
+    if (typeof cargarTodoGarita === 'function') {
+      await cargarTodoGarita();
+    }
+    if (typeof cargarSolicitudesSistemas === 'function') {
+      await cargarSolicitudesSistemas();
+    }
+    if (typeof actualizarMetricasGenerales === 'function') {
+      await actualizarMetricasGenerales();
+    }
+  } catch (error) {
+    showToast('Error: ' + error.message, 'error');
+  }
 }
 
 // Cargar equipos autorizados por Sistemas que están pendientes de retiro en Garita

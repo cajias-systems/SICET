@@ -2204,6 +2204,66 @@ app.post('/api/garita/despachar', requireRole(['garita', 'sistemas']), async (re
   }
 });
 
+// 12.1 DESPACHO MASIVO POR CONTINGENCIA (CORTE DE INTERNET / TELETRABAJO MASIVO)
+app.post('/api/garita/despacho-masivo-contingencia', requireRole(['garita', 'sistemas']), async (req, res) => {
+  try {
+    const { operador = 'David Sistemas', fecha, motivo = 'Corte de Internet / Teletrabajo Masivo' } = req.body;
+    const today = getFechaLocalEcuador();
+    const queryFecha = fecha || today;
+
+    // Obtener todas las solicitudes autorizadas que esperan despacho
+    const pendientes = await db.prepare(`
+      SELECT * FROM solicitudes 
+      WHERE estado = 'APROBADO' AND (fecha_salida = ? OR fecha_salida <= ?)
+      ORDER BY fecha_salida DESC, id ASC
+    `).all(queryFecha, today);
+
+    if (pendientes.length === 0) {
+      return res.json({
+        ok: true,
+        count: 0,
+        message: 'No hay solicitudes pendientes de despacho en Garita.'
+      });
+    }
+
+    const now = new Date().toISOString();
+    let despachados = 0;
+
+    for (const sol of pendientes) {
+      await db.prepare(`
+        UPDATE solicitudes 
+        SET estado = 'SALIO', despachado_por = ?, despachado_en = ? 
+        WHERE id = ?
+      `).run(operador, now, sol.id);
+
+      await registrarAuditoria(
+        sol.id,
+        'SALIDA_CONFIRMADA_CONTINGENCIA',
+        operador,
+        `Salida masiva por contingencia (${motivo}). Asesor: ${sol.nombres}, Equipo: ${sol.codigo_maquina} (${sol.modelo})`
+      );
+
+      despachados++;
+    }
+
+    broadcastEvent('DESPACHO_MASIVO_CONTINGENCIA', {
+      total: despachados,
+      operador,
+      motivo,
+      hora: now
+    });
+
+    res.json({
+      ok: true,
+      count: despachados,
+      message: `¡Contingencia ejecutada! Se despacharon exitosamente ${despachados} equipos como SALIDA a teletrabajo.`
+    });
+  } catch (error) {
+    console.error('Error en despacho masivo de contingencia:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // 13. RETORNO RÁPIDO INDIVIDUAL (CHECK-IN POR ESCANEO EN GARITA)
 app.post('/api/garita/retornar', async (req, res) => {
   try {
