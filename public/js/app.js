@@ -4,6 +4,7 @@
 
 let currentUser = null; // { id, username, nombre, rol, area }
 let selectedSolicitudesSistemas = new Set();
+let selectedAsesoresHabituales = new Set();
 let debounceTimer = null;
 let ultimosDespachosCache = [];
 let despachosGaritaCache = [];
@@ -2707,6 +2708,11 @@ async function cargarMiEquipoHabitual() {
     const jsonSol = await resSol.json();
     const solicitudesHoy = jsonSol.ok ? jsonSol.data : [];
 
+    // Preservar las casillas que el usuario ya tenga marcadas en la pantalla
+    document.querySelectorAll('.check-asesor-habitual:checked').forEach(cb => {
+      selectedAsesoresHabituales.add(String(cb.value));
+    });
+
     tbody.innerHTML = json.data.map(asesor => {
       // Buscar primero si tiene una solicitud activa (bloqueante) hoy
       const solActiva = solicitudesHoy.find(s => 
@@ -2754,6 +2760,8 @@ async function cargarMiEquipoHabitual() {
         }
       }
 
+      const isChecked = (!isDisabled && selectedAsesoresHabituales.has(String(asesor.id))) ? 'checked' : '';
+
       return `
         <tr class="hover:bg-purple-50/40 transition ${rowBg}">
           <td class="p-3">
@@ -2762,6 +2770,8 @@ async function cargarMiEquipoHabitual() {
               class="check-asesor-habitual rounded text-purple-600 w-4 h-4 cursor-pointer" 
               value="${asesor.id}" 
               ${isDisabled}
+              ${isChecked}
+              onchange="toggleCheckAsesorHabitual(this, '${asesor.id}')"
               title="${isDisabled ? 'No disponible: el equipo ya está en teletrabajo o en proceso de salida' : 'Seleccionar para salida hoy'}"
               data-cedula="${asesor.cedula}"
               data-nombres="${asesor.nombres}"
@@ -2791,15 +2801,48 @@ async function cargarMiEquipoHabitual() {
     }).join('');
 
     lucide.createIcons();
+    actualizarBotonAutorizarHabituales();
   } catch (e) {
     console.error('Error cargando equipo habitual:', e);
     tbody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-rose-500">Error cargando el equipo habitual: ${e.message}</td></tr>`;
   }
 }
 
+function toggleCheckAsesorHabitual(cb, id) {
+  if (cb.checked) {
+    selectedAsesoresHabituales.add(String(id));
+  } else {
+    selectedAsesoresHabituales.delete(String(id));
+  }
+  actualizarBotonAutorizarHabituales();
+}
+
 function toggleSelectAllHabituales(masterCheckbox) {
   const checkboxes = document.querySelectorAll('.check-asesor-habitual:not([disabled])');
-  checkboxes.forEach(cb => cb.checked = masterCheckbox.checked);
+  checkboxes.forEach(cb => {
+    cb.checked = masterCheckbox.checked;
+    if (masterCheckbox.checked) {
+      selectedAsesoresHabituales.add(String(cb.value));
+    } else {
+      selectedAsesoresHabituales.delete(String(cb.value));
+    }
+  });
+  actualizarBotonAutorizarHabituales();
+}
+
+function actualizarBotonAutorizarHabituales() {
+  const textoBtn = document.getElementById('textoBtnAutorizarHabitual');
+  const count = selectedAsesoresHabituales.size;
+  if (textoBtn) {
+    textoBtn.textContent = count > 0 ? `Autorizar Seleccionados para Hoy (${count})` : 'Autorizar Seleccionados para Hoy';
+  }
+  const master = document.getElementById('checkSelectAllHabituales');
+  const enabledCbs = document.querySelectorAll('.check-asesor-habitual:not([disabled])');
+  if (master && enabledCbs.length > 0) {
+    const checkedCount = document.querySelectorAll('.check-asesor-habitual:checked').length;
+    master.checked = checkedCount > 0 && checkedCount === enabledCbs.length;
+    master.indeterminate = checkedCount > 0 && checkedCount < enabledCbs.length;
+  }
 }
 
 async function autorizarSeleccionadosHabituales() {
@@ -2848,6 +2891,8 @@ async function autorizarSeleccionadosHabituales() {
       if (json.omitidos && json.omitidos.length > 0) {
         alert('Atención: Algunos asesores no pudieron ser enviados:\n\n' + json.omitidos.join('\n'));
       }
+      selectedAsesoresHabituales.clear();
+      actualizarBotonAutorizarHabituales();
       cargarMiEquipoHabitual();
       cargarSolicitudesLiderHoy();
       actualizarMetricasGenerales();
