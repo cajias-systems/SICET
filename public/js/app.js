@@ -2716,8 +2716,21 @@ async function cargarMiEquipoHabitual() {
       const sol = solActiva || solicitudesHoy.find(s => s.cedula === asesor.cedula || s.codigo_maquina === asesor.codigo_maquina);
       let estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">No enviado hoy</span>';
       let isDisabled = '';
+      let rowBg = '';
 
-      if (sol) {
+      // 1. PRIORIDAD: Si el asesor o su equipo ya están en teletrabajo activo (SALIO sin haber retornado)
+      if (asesor.esta_en_teletrabajo || asesor.laptop_afuera) {
+        const fSal = asesor.teletrabajo_desde || '';
+        let fSalTxt = '';
+        if (fSal) {
+          const p = fSal.split('-');
+          fSalTxt = p.length === 3 ? `${p[2]}/${p[1]}` : fSal;
+        }
+        const otroLid = asesor.teletrabajo_lider && asesor.teletrabajo_lider !== liderNombre ? ` (${asesor.teletrabajo_lider})` : '';
+        estadoBadge = `<span class="px-2.5 py-1 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 border border-blue-300 shadow-sm" title="El equipo ya está en teletrabajo en posesión del asesor. Debe registrarse su retorno en Garita antes de una nueva salida.">🔵 En Teletrabajo${fSalTxt ? ' (Desde ' + fSalTxt + ')' : ''}${otroLid}</span>`;
+        isDisabled = 'disabled';
+        rowBg = 'bg-blue-50/30';
+      } else if (sol) {
         const otroLider = sol.lider_nombre && sol.lider_nombre !== liderNombre ? ` (${sol.lider_nombre})` : '';
         if (sol.estado === 'PENDIENTE') {
           estadoBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-300">En revisión TI${otroLider}</span>`;
@@ -2728,6 +2741,7 @@ async function cargarMiEquipoHabitual() {
         } else if (sol.estado === 'SALIO') {
           estadoBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-300">En Teletrabajo${otroLider}</span>`;
           isDisabled = 'disabled';
+          rowBg = 'bg-blue-50/30';
         } else if (sol.estado === 'RETORNADO') {
           estadoBadge = '<span class="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-100 text-cyan-800 border border-cyan-300">Retornado (Disponible)</span>';
           isDisabled = '';
@@ -2741,13 +2755,14 @@ async function cargarMiEquipoHabitual() {
       }
 
       return `
-        <tr class="hover:bg-purple-50/40 transition">
+        <tr class="hover:bg-purple-50/40 transition ${rowBg}">
           <td class="p-3">
             <input 
               type="checkbox" 
               class="check-asesor-habitual rounded text-purple-600 w-4 h-4 cursor-pointer" 
               value="${asesor.id}" 
               ${isDisabled}
+              title="${isDisabled ? 'No disponible: el equipo ya está en teletrabajo o en proceso de salida' : 'Seleccionar para salida hoy'}"
               data-cedula="${asesor.cedula}"
               data-nombres="${asesor.nombres}"
               data-codigo="${asesor.codigo_maquina}"
@@ -4887,8 +4902,235 @@ async function guardarCambioClave(e) {
     playErrorSound();
     showToast(error.message, 'error');
   } finally {
-    if (btn) btn.disabled = false;
+// =========================================================================
+// RASTREADOR DE EQUIPOS Y ASESORES EN TIEMPO REAL (SISTEMAS TI)
+// =========================================================================
+async function ejecutarRastreoEquipo(event) {
+  if (event) event.preventDefault();
+  const input = document.getElementById('inputRastreadorSistemas');
+  const container = document.getElementById('resultadoRastreoContainer');
+  if (!input || !container) return;
+
+  const q = input.value.trim();
+  if (!q) {
+    alert('Por favor ingrese el código de máquina, cédula o apellido a rastrear.');
+    input.focus();
+    return;
+  }
+
+  container.classList.remove('hidden');
+  container.innerHTML = `
+    <div class="p-6 bg-slate-800/90 rounded-2xl border border-indigo-500/30 text-center text-slate-300 flex items-center justify-center gap-3">
+      <i data-lucide="loader" class="w-5 h-5 animate-spin text-indigo-400"></i>
+      <span class="text-sm font-bold">Rastreando equipo e historial en la base de datos...</span>
+    </div>
+  `;
+  lucide.createIcons();
+
+  try {
+    const res = await fetchAuth(`/api/equipos/rastrear?q=${encodeURIComponent(q)}`);
+    const json = await res.json();
+
+    if (!json.ok || !json.encontrado) {
+      container.innerHTML = `
+        <div class="p-5 bg-rose-950/60 rounded-2xl border border-rose-500/40 text-rose-200 text-sm flex items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <i data-lucide="alert-circle" class="w-6 h-6 text-rose-400 flex-shrink-0"></i>
+            <div>
+              <div class="font-bold">No se encontró ningún equipo o persona</div>
+              <div class="text-xs text-rose-300/80">${json.message || 'Verifique el código o número de cédula ingresado.'}</div>
+            </div>
+          </div>
+          <button onclick="document.getElementById('resultadoRastreoContainer').classList.add('hidden')" class="px-3 py-1.5 bg-rose-900/60 hover:bg-rose-800 text-xs font-bold rounded-xl border border-rose-600/40">Cerrar</button>
+        </div>
+      `;
+      lucide.createIcons();
+      return;
+    }
+
+    const d = json;
+    let badgeEstadoHtml = '';
+    let detalleUbicacion = '';
+
+    if (d.ubicacion_actual === 'EN_TELETRABAJO') {
+      const fSal = d.solicitud_activa ? d.solicitud_activa.fecha_salida : (d.ultimo_movimiento ? d.ultimo_movimiento.fecha_hora : '--');
+      badgeEstadoHtml = `
+        <div class="px-4 py-2 rounded-2xl bg-blue-500/20 text-blue-300 border-2 border-blue-400/50 font-black text-sm flex items-center gap-2 shadow-lg">
+          <span class="w-3 h-3 rounded-full bg-blue-400 animate-ping"></span>
+          <span>FUERA EN TELETRABAJO</span>
+        </div>
+      `;
+      detalleUbicacion = `<span class="text-blue-300 font-bold">Equipo fuera de las instalaciones de la empresa desde el ${fSal}.</span>`;
+    } else if (d.ubicacion_actual === 'POR_SALIR') {
+      badgeEstadoHtml = `
+        <div class="px-4 py-2 rounded-2xl bg-amber-500/20 text-amber-300 border-2 border-amber-400/50 font-black text-sm flex items-center gap-2 shadow-lg">
+          <span class="w-3 h-3 rounded-full bg-amber-400 animate-pulse"></span>
+          <span>APROBADO EN GARITA (POR RETIRAR)</span>
+        </div>
+      `;
+      detalleUbicacion = '<span class="text-amber-300 font-bold">La laptop ya fue aprobada por Sistemas y está esperando ser retirada en Garita.</span>';
+    } else {
+      badgeEstadoHtml = `
+        <div class="px-4 py-2 rounded-2xl bg-emerald-500/20 text-emerald-300 border-2 border-emerald-400/50 font-black text-sm flex items-center gap-2 shadow-lg">
+          <span class="w-3 h-3 rounded-full bg-emerald-400"></span>
+          <span>EN PLANTA / OFICINA (DISPONIBLE)</span>
+        </div>
+      `;
+      detalleUbicacion = '<span class="text-emerald-300 font-bold">La laptop se encuentra físicamente dentro del edificio.</span>';
+    }
+
+    // Botón de retorno directo si la máquina está afuera
+    let botonRetornoDirecto = '';
+    if (d.ubicacion_actual === 'EN_TELETRABAJO') {
+      botonRetornoDirecto = `
+        <button onclick="confirmarRetornoDesdeRastreador('${d.codigo_maquina}', '${d.titular}')" class="touch-btn px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow-lg transition flex items-center gap-2">
+          <i data-lucide="log-in" class="w-4 h-4"></i>
+          <span>Registrar Reingreso a Planta Aquí</span>
+        </button>
+      `;
+    }
+
+    // Historial de movimientos
+    let historialHtml = '';
+    if (d.historial && d.historial.length > 0) {
+      historialHtml = `
+        <div class="mt-4 pt-4 border-t border-slate-700/80">
+          <div class="text-xs font-black uppercase text-slate-400 tracking-wider mb-2 flex items-center gap-1.5">
+            <i data-lucide="history" class="w-3.5 h-3.5 text-indigo-400"></i>
+            <span>Historial Reciente de Salidas y Retornos de este Equipo</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-[11px] uppercase bg-slate-800/90 text-slate-300 font-bold border-b border-slate-700">
+                <tr>
+                  <th class="p-2">Fecha Salida</th>
+                  <th class="p-2">Asesor / Titular</th>
+                  <th class="p-2">Líder</th>
+                  <th class="p-2">Estado</th>
+                  <th class="p-2">Despachado En</th>
+                  <th class="p-2">Retornado En</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-800">
+                ${d.historial.map(h => `
+                  <tr class="hover:bg-slate-800/50 transition">
+                    <td class="p-2 font-mono">${h.fecha_salida || h.fecha_hora || '--'}</td>
+                    <td class="p-2 font-bold text-white">${h.nombres || h.nombre_funcionario || h.lider_nombre || '--'}</td>
+                    <td class="p-2 text-slate-300">${h.lider_nombre || 'N/A'}</td>
+                    <td class="p-2">
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${h.estado === 'SALIO' ? 'bg-blue-900/60 text-blue-300 border border-blue-600/40' : (h.estado === 'RETORNADO' ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-600/40' : 'bg-slate-700 text-slate-300')}">
+                        ${h.estado || h.tipo_movimiento || '--'}
+                      </span>
+                    </td>
+                    <td class="p-2 font-mono text-[11px] text-slate-400">${h.despachado_en ? formatearTimestampEcuador(h.despachado_en) : (h.tipo_movimiento === 'SALIDA' ? formatearTimestampEcuador(h.fecha_hora) : '--')}</td>
+                    <td class="p-2 font-mono text-[11px] text-emerald-400">${h.retornado_en ? formatearTimestampEcuador(h.retornado_en) : (h.tipo_movimiento === 'ENTRADA' ? formatearTimestampEcuador(h.fecha_hora) : '<span class="text-slate-500 font-sans">Pendiente</span>')}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = `
+      <div class="p-6 bg-slate-800/95 rounded-2xl border-2 border-indigo-500/40 shadow-2xl space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-700">
+          <div class="flex items-center gap-3">
+            <div class="px-3 py-1.5 bg-indigo-950 rounded-xl border border-indigo-400 font-mono text-xl font-black text-indigo-300 tracking-wider">
+              ${d.codigo_maquina}
+            </div>
+            <div>
+              <div class="text-sm font-bold text-white flex items-center gap-2">
+                <span>${d.modelo || 'Laptop'}</span>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-700 text-slate-300">${d.categoria}</span>
+              </div>
+              <div class="text-xs text-slate-400 mt-0.5">${detalleUbicacion}</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            ${badgeEstadoHtml}
+            <button onclick="document.getElementById('resultadoRastreoContainer').classList.add('hidden')" class="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-700 transition" title="Cerrar resultado">
+              <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-900/70 p-4 rounded-xl border border-slate-700/60">
+          <div>
+            <div class="text-[10px] font-black uppercase text-slate-400">Titular / Asesor Asignado</div>
+            <div class="text-sm font-black text-white mt-0.5">${d.titular}</div>
+            <div class="text-xs font-mono text-slate-400">C.I: ${d.cedula}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-black uppercase text-slate-400">Líder a Cargo</div>
+            <div class="text-sm font-black text-indigo-300 mt-0.5">${d.lider_nombre}</div>
+            <div class="text-xs text-slate-400">Área: ${d.area}</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-black uppercase text-slate-400">Fecha y Hora de Salida</div>
+            <div class="text-sm font-bold text-amber-300 mt-0.5">
+              ${d.solicitud_activa && d.solicitud_activa.despachado_en ? formatearTimestampEcuador(d.solicitud_activa.despachado_en) : (d.solicitud_activa ? d.solicitud_activa.fecha_salida : '--')}
+            </div>
+            <div class="text-xs text-slate-400">Despachó: ${d.solicitud_activa ? (d.solicitud_activa.despachado_por || 'Garita') : '--'}</div>
+          </div>
+          <div class="flex flex-col justify-center">
+            ${botonRetornoDirecto || '<div class="text-xs text-slate-400 font-semibold text-center sm:text-left">Equipo en custodia normal</div>'}
+          </div>
+        </div>
+
+        ${historialHtml}
+      </div>
+    `;
+
+    lucide.createIcons();
+  } catch (error) {
+    container.innerHTML = `
+      <div class="p-4 bg-rose-950/60 rounded-xl border border-rose-500/40 text-rose-200 text-xs font-bold">
+        Error al rastrear equipo: ${error.message}
+      </div>
+    `;
   }
 }
+
+// Confirmar retorno directo desde la tarjeta del rastreador
+async function confirmarRetornoDesdeRastreador(codigoMaquina, titular) {
+  const operador = currentUser ? currentUser.nombre : 'David Sistemas';
+  if (!confirm(`¿Desea registrar el reingreso físico a planta de la laptop ${codigoMaquina} (${titular})?\n\nEl equipo quedará registrado como RETORNADO en planta.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetchAuth('/api/garita/retornar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        codigo_maquina: codigoMaquina,
+        retornado_por: operador,
+        observaciones_retorno: 'Reingreso registrado directamente desde el Rastreador de Sistemas TI'
+      })
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.error || 'Error al registrar retorno.');
+      return;
+    }
+
+    playSuccessSound();
+    alert(`✅ ¡Reingreso confirmado! La laptop ${codigoMaquina} ahora consta como EN PLANTA.`);
+    showToast(`Laptop ${codigoMaquina} reingresó a oficinas.`, 'success');
+
+    // Refrescar el rastreador y tablas
+    const input = document.getElementById('inputRastreadorSistemas');
+    if (input) input.value = codigoMaquina;
+    ejecutarRastreoEquipo();
+    if (typeof cargarSolicitudesSistemas === 'function') cargarSolicitudesSistemas();
+    if (typeof actualizarMetricasGenerales === 'function') actualizarMetricasGenerales();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
 
 

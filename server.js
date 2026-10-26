@@ -1024,7 +1024,7 @@ app.get('/api/lider/mi-equipo', async (req, res) => {
       `).all(cleanLider, cleanLider);
     }
 
-    // Anotar cada asesor si ya tiene solicitud hoy o si la laptop está afuera
+    // Anotar cada asesor si ya tiene solicitud hoy o si la laptop o asesor están afuera en teletrabajo
     const resultado = await Promise.all(asesores.map(async a => {
       const solicitudHoy = await db.prepare(`
         SELECT id, estado, fecha_salida 
@@ -1033,18 +1033,23 @@ app.get('/api/lider/mi-equipo', async (req, res) => {
         ORDER BY id DESC LIMIT 1
       `).get(a.cedula, today);
 
-      const laptopAfuera = await db.prepare(`
-        SELECT nombres, fecha_salida 
+      // Verificar si la máquina física o el asesor ya están en teletrabajo (SALIO) sin retornar
+      const equipoSalio = await db.prepare(`
+        SELECT id, nombres, area, lider_nombre, codigo_maquina, fecha_salida, despachado_en, despachado_por
         FROM solicitudes 
-        WHERE codigo_maquina = ? AND estado = 'SALIO'
-        LIMIT 1
-      `).get(a.codigo_maquina);
+        WHERE (codigo_maquina = ? OR cedula = ?) AND estado = 'SALIO'
+        ORDER BY id DESC LIMIT 1
+      `).get(a.codigo_maquina, a.cedula);
 
       return {
         ...a,
         solicitud_hoy: solicitudHoy || null,
-        laptop_afuera: laptopAfuera ? true : false,
-        laptop_afuera_detalle: laptopAfuera ? `En teletrabajo con ${laptopAfuera.nombres} desde ${laptopAfuera.fecha_salida}` : null
+        esta_en_teletrabajo: equipoSalio ? true : false,
+        teletrabajo_desde: equipoSalio ? equipoSalio.fecha_salida : null,
+        teletrabajo_lider: equipoSalio ? equipoSalio.lider_nombre : null,
+        teletrabajo_asesor: equipoSalio ? equipoSalio.nombres : null,
+        laptop_afuera: equipoSalio ? true : false,
+        laptop_afuera_detalle: equipoSalio ? `En teletrabajo con ${equipoSalio.nombres} desde ${equipoSalio.fecha_salida}` : null
       };
     }));
 
@@ -1271,7 +1276,7 @@ app.get('/api/solicitudes', async (req, res) => {
         query += " AND (fecha_salida = ? OR estado = 'PENDIENTE' OR created_at >= datetime('now', '-48 hours'))";
         params.push(fecha);
       } else if (lider && lider !== 'TODOS') {
-        query += " AND (fecha_salida = ? OR created_at >= datetime('now', '-24 hours'))";
+        query += " AND (fecha_salida = ? OR estado = 'SALIO' OR created_at >= datetime('now', '-24 hours'))";
         params.push(fecha);
       } else {
         query += ' AND (fecha_salida = ? OR created_at >= datetime(\'now\', \'-24 hours\'))';
@@ -2947,6 +2952,151 @@ app.get('/api/stats', async (req, res) => {
       stats
     });
   } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 17.1 RASTREADOR DE EQUIPO Y ASESOR EN TIEMPO REAL (HISTORIAL & UBICACIÓN ACTUAL)
+app.get('/api/equipos/rastrear', requireRole(['sistemas', 'garita']), async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) {
+      return res.status(400).json({ ok: false, error: 'Debe ingresar una serie, cédula o nombre.' });
+    }
+
+    const qUpper = q.toUpperCase();
+    const qLike = `%${q}%`;
+
+    // 1. Verificar si es equipo exclusivo de Sistemas / TI
+    const activoTI = await db.prepare(`
+      SELECT * FROM activos_ti 
+      WHERE UPPER(codigo_maquina) = ? OR cedula = ? OR UPPER(nombre_completo) LIKE ? OR UPPER(nombre) LIKE ?
+    `).get(qUpper, q, qLike, qLike);
+
+    if (activoTI) {
+      const movs = await db.prepare(`
+        SELECT * FROM activos_ti_movimientos WHERE activo_id = ? ORDER BY id DESC LIMIT 10
+      `).all(activoTI.id);
+
+      return res.json({
+        ok: true,
+        encontrado: true,
+        categoria: 'TI',
+        codigo_maquina: activoTI.codigo_maquina,
+        modelo: activoTI.modelo || 'Dell Latitude Corporativa',
+        titular: activoTI.nombre_completo || activoTI.nombre,
+        cedula: activoTI.cedula || 'TI',
+        area: activoTI.area || 'Sistemas / TI',
+        cargo: activoTI.cargo || 'Infraestructura & DevOps',
+        lider_nombre: 'Dirección de TI',
+        ubicacion_actual: activoTI.estado_ubicacion === 'EN_PLANTA' ? 'EN_PLANTA' : 'EN_TELETRABAJO',
+        ultimo_movimiento: {
+          tipo: activoTI.ultimo_movimiento_tipo || 'EN_PLANTA',
+          fecha_hora: activoTI.ultimo_movimiento_en,
+          guardia: activoTI.ultimo_guardia
+        },
+        historial: movs
+      });
+    }
+
+    // 2. Verificar si es equipo de un Líder de Operaciones
+    const lider = await db.prepare(`
+      SELECT * FROM lideres_directorio 
+      WHERE UPPER(codigo_maquina) = ? OR cedula = ? OR UPPER(nombre) LIKE ? OR UPPER(nombre_completo) LIKE ?
+    `).get(qUpper, q, qLike, qLike);
+
+    if (lider) {
+      const movsLider = await db.prepare(`
+        SELECT * FROM lideres_movimientos WHERE lider_id = ? ORDER BY id DESC LIMIT 10
+      `).all(lider.id);
+
+      return res.json({
+        ok: true,
+        encontrado: true,
+        categoria: 'LIDER',
+        codigo_maquina: lider.codigo_maquina,
+        modelo: lider.modelo || 'DELL',
+        titular: lider.nombre_completo || lider.nombre,
+        cedula: lider.cedula || 'LÍDER',
+        area: lider.area_default || 'Cobranzas',
+        cargo: lider.cargo || 'Líder de Operaciones',
+        lider_nombre: lider.nombre,
+        ubicacion_actual: lider.estado_ubicacion === 'EN_PLANTA' ? 'EN_PLANTA' : 'EN_TELETRABAJO',
+        ultimo_movimiento: {
+          tipo: lider.ultimo_movimiento_tipo || 'EN_PLANTA',
+          fecha_hora: lider.ultimo_movimiento_en,
+          guardia: lider.ultimo_guardia
+        },
+        historial: movsLider
+      });
+    }
+
+    // 3. Buscar en Solicitudes de Asesores
+    // Primero, si tiene una solicitud en estado SALIO (actualmente afuera)
+    const salioActivo = await db.prepare(`
+      SELECT * FROM solicitudes 
+      WHERE (UPPER(codigo_maquina) = ? OR cedula = ? OR UPPER(nombres) LIKE ?) AND estado = 'SALIO'
+      ORDER BY id DESC LIMIT 1
+    `).get(qUpper, q, qLike);
+
+    // Última solicitud registrada en general
+    const ultimaSol = await db.prepare(`
+      SELECT * FROM solicitudes 
+      WHERE UPPER(codigo_maquina) = ? OR cedula = ? OR UPPER(nombres) LIKE ?
+      ORDER BY id DESC LIMIT 1
+    `).get(qUpper, q, qLike);
+
+    // Registro en catálogo habitual
+    const cat = await db.prepare(`
+      SELECT * FROM asesores_catalogo 
+      WHERE UPPER(codigo_maquina) = ? OR cedula = ? OR UPPER(nombres) LIKE ?
+      LIMIT 1
+    `).get(qUpper, q, qLike);
+
+    if (!salioActivo && !ultimaSol && !cat) {
+      return res.json({
+        ok: true,
+        encontrado: false,
+        message: `No se encontraron registros para "${q}". Verifique la serie o cédula.`
+      });
+    }
+
+    const solRef = salioActivo || ultimaSol;
+    const targetCode = (solRef ? solRef.codigo_maquina : (cat ? cat.codigo_maquina : qUpper)).toUpperCase();
+
+    // Historial completo de movimientos de esta máquina
+    const historial = await db.prepare(`
+      SELECT id, cedula, nombres, area, lider_nombre, codigo_maquina, modelo, fecha_salida, estado, despachado_por, despachado_en, retornado_por, retornado_en
+      FROM solicitudes 
+      WHERE UPPER(codigo_maquina) = ?
+      ORDER BY id DESC LIMIT 15
+    `).all(targetCode);
+
+    let ubicacion = 'EN_PLANTA';
+    if (salioActivo) {
+      ubicacion = 'EN_TELETRABAJO';
+    } else if (ultimaSol && (ultimaSol.estado === 'PENDIENTE' || ultimaSol.estado === 'APROBADO')) {
+      ubicacion = 'POR_SALIR';
+    }
+
+    res.json({
+      ok: true,
+      encontrado: true,
+      categoria: 'ASESOR',
+      codigo_maquina: targetCode,
+      modelo: solRef ? solRef.modelo : (cat ? cat.modelo : 'DELL'),
+      titular: solRef ? solRef.nombres : (cat ? cat.nombres : 'N/A'),
+      cedula: solRef ? solRef.cedula : (cat ? cat.cedula : 'N/A'),
+      area: solRef ? solRef.area : (cat ? cat.area : 'Cobranzas'),
+      lider_nombre: solRef ? solRef.lider_nombre : (cat ? cat.lider_nombre : 'N/A'),
+      ubicacion_actual: ubicacion,
+      solicitud_activa: salioActivo || null,
+      ultima_solicitud: ultimaSol || null,
+      catalogo: cat || null,
+      historial
+    });
+  } catch (error) {
+    console.error('Error en rastreo de equipo:', error);
     res.status(500).json({ ok: false, error: error.message });
   }
 });
