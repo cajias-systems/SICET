@@ -3471,7 +3471,26 @@ app.get('/api/inventario/lecturas', requireRole(['sistemas']), async (req, res) 
     params.push(parseInt(limit, 10) || 100);
 
     const rows = await db.prepare(sql).all(...params);
-    res.json({ ok: true, data: rows });
+    const formatted = rows.map(r => {
+      let extra = {};
+      try { extra = JSON.parse(r.datos_catalogo || '{}'); } catch(e){}
+      return {
+        lectura_id: r.id,
+        codigo_maquina: r.codigo_maquina,
+        piso_hallazgo: r.piso_hallazgo,
+        estado_clasificacion: r.estado_clasificacion,
+        titular: extra.titular || 'No registrado',
+        lider_asignado: extra.liderAsignado || 'N/A',
+        area_asignada: extra.areaAsignada || '',
+        modelo: extra.modelo || 'DELL',
+        conflicto: extra.conflicto || (r.estado_clasificacion === 'DUPLICADO'),
+        coincidencias_catalogo: extra.coincidenciasCatalogo || [],
+        mensaje_diagnostico: r.accion_aplicada || '',
+        usuario_auditor: r.usuario_auditor,
+        fecha_escaneo: formatearTimestampEcuador(r.fecha_escaneo)
+      };
+    });
+    res.json({ ok: true, data: formatted });
   } catch (error) {
     res.status(500).json({ ok: false, error: error.message });
   }

@@ -5263,7 +5263,10 @@ async function iniciarModuloInventario() {
   // Llenar selectores de líderes
   await cargarLideresSelectoresInventario();
 
-  // Cargar lecturas y conciliación inicial
+  // Cargar lecturas previas guardadas en la base de datos para este piso
+  await cargarLecturasInventario();
+
+  // Cargar conciliación de faltantes
   await cargarConciliacionFaltantes();
 
   // Configurar bloqueo de auto-enfoque permanente para que nunca pierda el foco de la pistola
@@ -5350,6 +5353,21 @@ async function cargarLideresSelectoresInventario() {
   }
 }
 
+// Cargar lecturas guardadas en la base de datos para el piso seleccionado
+async function cargarLecturasInventario() {
+  try {
+    const res = await fetchAuth(`/api/inventario/lecturas?piso=${encodeURIComponent(inventarioPisoActual)}&limit=150`);
+    const json = await res.json();
+    if (json.ok && Array.isArray(json.data)) {
+      listaLecturasRonda = json.data;
+      renderizarLecturasInventario();
+      actualizarKPIsInventario();
+    }
+  } catch (err) {
+    console.error('Error cargando lecturas de inventario:', err);
+  }
+}
+
 // Selección de piso para la auditoría
 function seleccionarPisoInventario(piso) {
   inventarioPisoActual = piso;
@@ -5364,6 +5382,7 @@ function seleccionarPisoInventario(piso) {
   });
 
   showToast(`Piso de auditoría cambiado a: ${piso}`, 'info');
+  cargarLecturasInventario();
   cargarConciliacionFaltantes();
 
   const input = document.getElementById('inputInventarioPistola');
