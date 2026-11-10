@@ -267,6 +267,38 @@ async function initDb() {
       console.log('[DB] Activo TI 4WW20N2 registrado para David Sistemas.');
     }
 
+    // TABLAS PARA AUDITORÍA DE PISO E INVENTARIO FÍSICO ANTI-PÉRDIDAS
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS inventario_sesiones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre_sesion TEXT NOT NULL,
+        piso TEXT NOT NULL,
+        lider_referencia TEXT DEFAULT '',
+        responsable TEXT DEFAULT 'David Sistemas',
+        fecha_inicio TEXT DEFAULT (datetime('now', 'localtime')),
+        fecha_cierre TEXT,
+        estado TEXT DEFAULT 'ABIERTA',
+        total_escaneados INTEGER DEFAULT 0,
+        observaciones TEXT
+      );
+    `);
+
+    await client.execute(`
+      CREATE TABLE IF NOT EXISTS inventario_lecturas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sesion_id INTEGER,
+        codigo_maquina TEXT NOT NULL,
+        piso_hallazgo TEXT NOT NULL,
+        area_hallazgo TEXT DEFAULT '',
+        ubicacion_exacta TEXT DEFAULT '',
+        estado_clasificacion TEXT NOT NULL,
+        datos_catalogo TEXT,
+        accion_aplicada TEXT DEFAULT 'Escaneado',
+        usuario_auditor TEXT DEFAULT 'David Sistemas',
+        fecha_escaneo TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
+
     console.log('[DB] Esquema y tablas verificadas correctamente.');
   } catch (err) {
     console.error('[DB] Error inicializando tablas:', err.message);

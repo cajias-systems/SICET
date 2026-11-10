@@ -235,6 +235,11 @@
             <span>Activos TI & Sistemas</span>
           </button>
 
+          <button onclick="cambiarModulo('inventario')" id="nav-inventario" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-amber-300 hover:text-white hover:bg-slate-800 border border-amber-500/30">
+            <i data-lucide="scan-barcode" class="w-4 h-4 text-amber-400"></i>
+            <span>Auditoría de Piso (Pistola)</span>
+          </button>
+
           <button onclick="cambiarModulo('auditoria')" id="nav-auditoria" class="nav-tab px-4 py-2 rounded-lg flex items-center gap-2 transition-all text-slate-300 hover:text-white hover:bg-slate-800">
             <i data-lucide="activity" class="w-4 h-4"></i>
             <span>Trazabilidad & Logs</span>
@@ -1514,6 +1519,279 @@
       </section>
 
       <!-- ============================================================= -->
+      <!-- MODULO INVENTARIO: AUDITORÍA DE PISO & ESCANEO FÍSICO (PISTOLA) -->
+      <!-- ============================================================= -->
+      <section id="modulo-inventario" class="hidden space-y-6">
+        
+        <!-- CABECERA PRINCIPAL DEL MÓDULO -->
+        <div class="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 text-white p-6 sm:p-8 rounded-3xl border border-slate-700 shadow-xl relative overflow-hidden">
+          <div class="absolute -right-10 -bottom-10 opacity-10 pointer-events-none">
+            <i data-lucide="scan-barcode" class="w-80 h-80"></i>
+          </div>
+
+          <div class="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div>
+              <div class="flex items-center gap-2 mb-2">
+                <span class="px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-400/40 text-[11px] font-black uppercase rounded-full tracking-wider flex items-center gap-1.5">
+                  <i data-lucide="shield-alert" class="w-3.5 h-3.5 text-amber-400"></i>
+                  <span>Auditoría Física & Anti-Pérdidas</span>
+                </span>
+                <span class="text-xs text-slate-400 font-medium">Control de Activos en Planta</span>
+              </div>
+              <h1 class="text-2xl sm:text-3xl font-black text-white tracking-tight">Barrido Físico de Equipos por Piso</h1>
+              <p class="text-xs sm:text-sm text-slate-300 font-medium mt-1 max-w-2xl">
+                Escaneo rápido puesto por puesto con lector de código de barras. Detección instantánea de duplicados por asesores dados de baja, reasignaciones en 1 clic y conciliación de laptops desaparecidas.
+              </p>
+            </div>
+
+            <!-- Botones de Acción Global -->
+            <div class="flex flex-wrap items-center gap-2">
+              <button 
+                onclick="exportarInformeInventarioExcel()" 
+                class="touch-btn px-4 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-2xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition"
+                title="Descargar informe oficial para entregar a la Jefatura"
+              >
+                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                <span>Descargar Informe Jefatura (Excel)</span>
+              </button>
+
+              <button 
+                onclick="cargarConciliacionFaltantes()" 
+                class="touch-btn px-3.5 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 hover:text-white font-bold text-xs rounded-2xl border border-slate-600 flex items-center gap-2 transition"
+                title="Refrescar datos y conciliación"
+              >
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                <span class="hidden sm:inline">Refrescar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- BARRA SELECTORA DE PISO Y FILTRO DE LÍDER -->
+        <div class="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+          <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            
+            <!-- Selector de Pisos (Botones Rápidos) -->
+            <div>
+              <label class="block text-xs font-black uppercase text-slate-600 mb-2">Seleccione el Piso que está auditando actualmente:</label>
+              <div class="flex flex-wrap items-center gap-1.5" id="grupoBotonesPisos">
+                <button type="button" onclick="seleccionarPisoInventario('Piso 1')" class="btn-piso-inv px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-slate-50 hover:bg-blue-50 text-slate-700 transition">Piso 1</button>
+                <button type="button" onclick="seleccionarPisoInventario('Piso 2')" class="btn-piso-inv px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-slate-50 hover:bg-blue-50 text-slate-700 transition">Piso 2</button>
+                <button type="button" onclick="seleccionarPisoInventario('Piso 3')" class="btn-piso-inv px-3.5 py-2 text-xs font-black rounded-xl border-2 border-blue-600 bg-blue-50 text-blue-800 transition active">Piso 3</button>
+                <button type="button" onclick="seleccionarPisoInventario('Piso 4')" class="btn-piso-inv px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-slate-50 hover:bg-blue-50 text-slate-700 transition">Piso 4</button>
+                <button type="button" onclick="seleccionarPisoInventario('Piso 5')" class="btn-piso-inv px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-slate-50 hover:bg-blue-50 text-slate-700 transition">Piso 5</button>
+                <button type="button" onclick="seleccionarPisoInventario('Piso 6')" class="btn-piso-inv px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-slate-50 hover:bg-blue-50 text-slate-700 transition">Piso 6</button>
+                <button type="button" onclick="seleccionarPisoInventario('Piso 7')" class="btn-piso-inv px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-slate-50 hover:bg-blue-50 text-slate-700 transition">Piso 7</button>
+                <button type="button" onclick="seleccionarPisoInventario('Oficina TI')" class="btn-piso-inv px-3.5 py-2 text-xs font-black rounded-xl border border-cyan-400 bg-cyan-50 hover:bg-cyan-100 text-cyan-800 transition">Oficina TI</button>
+                <button type="button" onclick="seleccionarPisoInventario('TODOS')" class="btn-piso-inv px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-slate-50 hover:bg-blue-50 text-slate-700 transition">Todo el Edificio</button>
+              </div>
+            </div>
+
+            <!-- Filtro de Líder Específico (ej. Carolina, Víctor) -->
+            <div class="min-w-[240px]">
+              <label class="block text-xs font-black uppercase text-slate-600 mb-1">Filtrar por Líder de Referencia:</label>
+              <select 
+                id="selectLiderFiltroInventario" 
+                onchange="cambiarLiderFiltroInventario()" 
+                class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white"
+              >
+                <option value="TODOS">Todos los Líderes (Global)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- CAJA DE ESCANEO ULTRA RÁPIDO CON PISTOLA (HANDS-FREE) -->
+        <div class="bg-white p-6 rounded-3xl border-2 border-blue-500/40 shadow-xl relative">
+          <div class="flex flex-col md:flex-row items-stretch md:items-center gap-4">
+            
+            <div class="flex-1 relative">
+              <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-blue-600">
+                <i data-lucide="scan-barcode" class="w-7 h-7"></i>
+              </div>
+              <input 
+                type="text" 
+                id="inputInventarioPistola" 
+                autocomplete="off" 
+                autofocus 
+                placeholder="Dispare la pistola al código o digítelo y presione ENTER... (Ej: 4848, 4WW20N2)" 
+                class="w-full pl-14 pr-24 py-4 text-base sm:text-lg font-mono font-black uppercase tracking-wider border-2 border-blue-300 rounded-2xl focus:ring-4 focus:ring-blue-500/30 focus:border-blue-600 focus:outline-none bg-blue-50/20 focus:bg-white transition"
+                onkeydown="manejarKeydownPistolaInventario(event)"
+              >
+              <button 
+                type="button" 
+                onclick="ejecutarEscaneoPistolaInventario()" 
+                class="touch-btn absolute right-2 top-2 bottom-2 px-5 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl flex items-center gap-1.5 transition"
+              >
+                <span>ESCANEAR</span>
+                <i data-lucide="arrow-right" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+            <!-- Indicadores de Enfoque y Sonido -->
+            <div class="flex items-center gap-3">
+              <div id="badgeFocoPistola" class="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>Pistola Lista</span>
+              </div>
+
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
+                <input type="checkbox" id="chkSonidoInventario" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500">
+                <span>🔊 Alertas Sonoras</span>
+              </label>
+
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none" title="Mantiene el cursor siempre en la caja de escaneo para que no tengas que usar el ratón">
+                <input type="checkbox" id="chkAutoEnfoqueInventario" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500">
+                <span>🔒 Auto-enfoque</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Mensaje de Último Escaneo en Vivo -->
+          <div id="bannerUltimoEscaneo" class="hidden mt-4 p-4 rounded-2xl border transition-all"></div>
+        </div>
+
+        <!-- TABLERO DE KPIS EN TIEMPO REAL -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
+            <span class="text-[10px] font-black uppercase text-slate-400">Escaneados en Piso</span>
+            <div class="flex items-baseline justify-between mt-2">
+              <span id="kpiInvEscaneados" class="text-2xl sm:text-3xl font-black text-slate-800">0</span>
+              <i data-lucide="check-check" class="w-5 h-5 text-blue-500"></i>
+            </div>
+            <span class="text-[10px] text-slate-500 font-semibold mt-1">Físicamente verificados</span>
+          </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-emerald-200 bg-emerald-50/30 shadow-sm flex flex-col justify-between">
+            <span class="text-[10px] font-black uppercase text-emerald-600">En Regla (Catálogo)</span>
+            <div class="flex items-baseline justify-between mt-2">
+              <span id="kpiInvEnRegla" class="text-2xl sm:text-3xl font-black text-emerald-700">0</span>
+              <i data-lucide="check-circle" class="w-5 h-5 text-emerald-600"></i>
+            </div>
+            <span class="text-[10px] text-emerald-600 font-semibold mt-1">Coincide piso y líder</span>
+          </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-amber-200 bg-amber-50/30 shadow-sm flex flex-col justify-between">
+            <span class="text-[10px] font-black uppercase text-amber-700">Desplazados de Piso</span>
+            <div class="flex items-baseline justify-between mt-2">
+              <span id="kpiInvDesplazados" class="text-2xl sm:text-3xl font-black text-amber-700">0</span>
+              <i data-lucide="move" class="w-5 h-5 text-amber-600"></i>
+            </div>
+            <span class="text-[10px] text-amber-700 font-semibold mt-1">De otro piso o líder</span>
+          </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-orange-200 bg-orange-50/30 shadow-sm flex flex-col justify-between">
+            <span class="text-[10px] font-black uppercase text-orange-700">Duplicados / Conflictos</span>
+            <div class="flex items-baseline justify-between mt-2">
+              <span id="kpiInvDuplicados" class="text-2xl sm:text-3xl font-black text-orange-700">0</span>
+              <i data-lucide="alert-triangle" class="w-5 h-5 text-orange-600"></i>
+            </div>
+            <span class="text-[10px] text-orange-700 font-semibold mt-1">En catálogo de 2 líderes</span>
+          </div>
+
+          <div class="col-span-2 sm:col-span-1 bg-white p-4 rounded-2xl border-2 border-rose-400 bg-rose-50/50 shadow-sm flex flex-col justify-between">
+            <span class="text-[10px] font-black uppercase text-rose-700">🚨 FALTANTES / PÉRDIDAS</span>
+            <div class="flex items-baseline justify-between mt-2">
+              <span id="kpiInvFaltantes" class="text-2xl sm:text-3xl font-black text-rose-700 animate-pulse">0</span>
+              <i data-lucide="alert-octagon" class="w-5 h-5 text-rose-600"></i>
+            </div>
+            <span class="text-[10px] text-rose-600 font-bold mt-1">No hallados en barrido</span>
+          </div>
+
+        </div>
+
+        <!-- PESTAÑAS DE VISTA: ESCANEADOS VS FALTANTES -->
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+          
+          <div class="flex border-b border-slate-200 bg-slate-50/80 px-6 pt-4 gap-2">
+            <button 
+              type="button" 
+              onclick="cambiarPestanaInventario('escaneados')" 
+              id="tabInvBtnEscaneados" 
+              class="px-5 py-3 text-xs font-black rounded-t-2xl border-t-2 border-x-2 border-blue-600 bg-white text-blue-700 shadow-sm transition"
+            >
+              <span>📋 Equipos Escaneados Físicamente (<span id="contTabEscaneados">0</span>)</span>
+            </button>
+
+            <button 
+              type="button" 
+              onclick="cambiarPestanaInventario('faltantes')" 
+              id="tabInvBtnFaltantes" 
+              class="px-5 py-3 text-xs font-black rounded-t-2xl border-t-2 border-x-2 border-transparent hover:border-slate-300 text-rose-600 transition"
+            >
+              <span>🚨 Alerta de Equipos Faltantes / Pérdidas (<span id="contTabFaltantes">0</span>)</span>
+            </button>
+          </div>
+
+          <!-- CONTENIDO PESTAÑA 1: EQUIPOS ESCANEADOS FÍSICAMENTE -->
+          <div id="panelInvEscaneados" class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h3 class="text-sm font-black text-slate-800">Lecturas Registradas en esta Ronda</h3>
+                <p class="text-xs text-slate-400">Lista en orden cronológico inverso (el más reciente arriba).</p>
+              </div>
+              <button 
+                onclick="limpiarRondaEscaneo()" 
+                class="touch-btn px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
+              >
+                Limpiar lista visual
+              </button>
+            </div>
+
+            <div id="listaEscaneosInventario" class="space-y-3">
+              <div class="text-center py-12 text-slate-400">
+                <i data-lucide="barcode" class="w-12 h-12 mx-auto mb-2 text-slate-300"></i>
+                <p class="text-sm font-bold">Aún no se han escaneado equipos en esta ronda.</p>
+                <p class="text-xs">Seleccione el piso y dispare la pistola al primer código de máquina.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- CONTENIDO PESTAÑA 2: CONCILIACIÓN DE FALTANTES (EL MISTERIO DE LAS 5 COMPUTADORAS) -->
+          <div id="panelInvFaltantes" class="hidden p-6 space-y-4">
+            
+            <div class="bg-rose-50 border border-rose-200 p-4 rounded-2xl flex items-start gap-3">
+              <i data-lucide="alert-octagon" class="w-6 h-6 text-rose-600 shrink-0 mt-0.5"></i>
+              <div>
+                <h4 class="text-xs font-black text-rose-800 uppercase">¿Por qué aparecen aquí estas computadoras?</h4>
+                <p class="text-xs text-rose-700 font-medium mt-0.5 leading-relaxed">
+                  Estas máquinas constan activas en el catálogo oficial de la empresa para el líder/piso seleccionado, pero <strong>NO tienen registro de haber salido a teletrabajo en Garita</strong> y <strong>TAMPOCO fueron encontradas físicamente</strong> al pasar la pistola por los escritorios. Representan posibles pérdidas por rotaciones de piso, traslados sin autorización o asesores que renunciaron y se llevaron el equipo.
+                </p>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr class="bg-slate-100 text-slate-600 font-black uppercase border-b border-slate-200">
+                    <th class="p-3">Código Máquina</th>
+                    <th class="p-3">Asesor Titular</th>
+                    <th class="p-3">Cédula</th>
+                    <th class="p-3">Líder Asignado</th>
+                    <th class="p-3">Área / Campaña</th>
+                    <th class="p-3">Modelo</th>
+                    <th class="p-3">Diagnóstico</th>
+                    <th class="p-3 text-right">Acción Rápida</th>
+                  </tr>
+                </thead>
+                <tbody id="cuerpoTablaFaltantes" class="divide-y divide-slate-100 font-semibold text-slate-700">
+                  <tr>
+                    <td colspan="8" class="text-center py-8 text-slate-400">
+                      Presione "Refrescar Auditoría" para calcular la conciliación de faltantes.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- ============================================================= -->
       <!-- MODULO 6: TRAZABILIDAD & AUDITORÍA (SISTEMAS) -->
       <!-- ============================================================= -->
       <section id="modulo-auditoria" class="hidden space-y-6">
@@ -2104,6 +2382,110 @@
     </div>
   </div>
 
+  <!-- MODAL: RESOLVER DUPLICADO / CONFLICTO EN CATÁLOGO (1 CLIC) -->
+  <div id="modalResolverDuplicado" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center gap-2 text-orange-600">
+          <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+          <div>
+            <h3 class="text-base font-black text-slate-800">Resolución de Duplicado en Catálogo</h3>
+            <span class="text-xs text-slate-400 font-semibold" id="subtituloModalDuplicado">Máquina: ----</span>
+          </div>
+        </div>
+        <button onclick="cerrarModalResolverDuplicado()" class="touch-btn text-slate-400 hover:text-slate-600 p-1 rounded-xl">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-600 leading-relaxed">
+        Este equipo está registrado simultáneamente para varios asesores (por ejemplo, un empleado anterior que renunció vs el asesor actual). Seleccione a quién pertenece <strong>oficialmente</strong> para depurar el registro obsoleto en 1 solo clic:
+      </p>
+
+      <div id="contenedorOpcionesDuplicado" class="space-y-2.5">
+        <!-- Opciones inyectadas dinámicamente -->
+      </div>
+
+      <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
+        <button 
+          type="button" 
+          onclick="abrirModalReasignarDesdeDuplicado()" 
+          class="touch-btn text-xs font-bold text-blue-600 hover:underline flex items-center gap-1"
+        >
+          <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+          <span>Asignar a otra persona nueva</span>
+        </button>
+
+        <button 
+          type="button" 
+          onclick="cerrarModalResolverDuplicado()" 
+          class="touch-btn px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: REASIGNAR EQUIPO A NUEVO LÍDER / ASESOR -->
+  <div id="modalReasignarEquipoInventario" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center gap-2 text-blue-600">
+          <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+          <div>
+            <h3 class="text-base font-black text-slate-800">Reasignar Equipo Oficialmente</h3>
+            <span class="text-xs text-slate-400 font-semibold" id="subtituloModalReasignar">Código: ----</span>
+          </div>
+        </div>
+        <button onclick="cerrarModalReasignarInventario()" class="touch-btn text-slate-400 hover:text-slate-600 p-1 rounded-xl">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form onsubmit="ejecutarReasignacionInventario(event)" class="space-y-3">
+        <input type="hidden" id="formReasigCodigo">
+
+        <div>
+          <label class="block text-xs font-black uppercase text-slate-600 mb-1">Nuevo Líder Responsable *</label>
+          <select id="formReasigLider" required class="w-full px-3 py-2.5 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-slate-50 focus:bg-white">
+            <!-- Llenado dinámico con líderes -->
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-black uppercase text-slate-600 mb-1">Nombres y Apellidos del Asesor *</label>
+          <input type="text" id="formReasigNombres" required placeholder="Ej: Pepito Pérez" class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none uppercase">
+        </div>
+
+        <div>
+          <label class="block text-xs font-black uppercase text-slate-600 mb-1">Cédula del Asesor</label>
+          <input type="text" id="formReasigCedula" placeholder="10 dígitos (opcional si es temporal)" class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-black uppercase text-slate-600 mb-1">Modelo</label>
+            <input type="text" id="formReasigModelo" value="DELL" class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none uppercase">
+          </div>
+          <div>
+            <label class="block text-xs font-black uppercase text-slate-600 mb-1">Área</label>
+            <input type="text" id="formReasigArea" value="Cobranzas" class="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+          <button type="button" onclick="cerrarModalReasignarInventario()" class="touch-btn px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl">
+            Cancelar
+          </button>
+          <button type="submit" class="touch-btn px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md shadow-blue-500/20">
+            Confirmar Reasignación
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- TOAST NOTIFICATION -->
   <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-24 opacity-0 transition-all duration-300 flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl text-sm font-bold text-white pointer-events-none">
     <i id="toastIcon" data-lucide="check-circle" class="w-5 h-5"></i>
@@ -2111,6 +2493,6 @@
   </div>
 
   <!-- Script principal con cache-busting -->
-  <script src="/js/app.js?v=2.2.0"></script>
+  <script src="/js/app.js?v=2.3.0"></script>
 </body>
 </html>

@@ -700,10 +700,11 @@ function configurarPermisosNavegacion(rol) {
   const navRetornos = document.getElementById('nav-retornos');
   const navLideresEquipos = document.getElementById('nav-lideres-equipos');
   const navActivosTI = document.getElementById('nav-activos-ti');
+  const navInventario = document.getElementById('nav-inventario');
   const navAuditoria = document.getElementById('nav-auditoria');
 
   // Restablecer visibilidad
-  [navGarita, navSistemas, navReporte, navLideres, navRetornos, navLideresEquipos, navActivosTI, navAuditoria].forEach(el => {
+  [navGarita, navSistemas, navReporte, navLideres, navRetornos, navLideresEquipos, navActivosTI, navInventario, navAuditoria].forEach(el => {
     if (el) el.classList.remove('hidden');
   });
 
@@ -715,6 +716,7 @@ function configurarPermisosNavegacion(rol) {
     if (navSistemas) navSistemas.classList.add('hidden');
     if (navReporte) navReporte.classList.add('hidden');
     if (navLideres) navLideres.classList.add('hidden');
+    if (navInventario) navInventario.classList.add('hidden');
     if (navAuditoria) navAuditoria.classList.add('hidden');
     if (btnAgregarLider) btnAgregarLider.classList.add('hidden');
     if (thGestionTI) thGestionTI.classList.add('hidden');
@@ -726,11 +728,13 @@ function configurarPermisosNavegacion(rol) {
     if (navRetornos) navRetornos.classList.add('hidden');
     if (navLideresEquipos) navLideresEquipos.classList.add('hidden');
     if (navActivosTI) navActivosTI.classList.add('hidden');
+    if (navInventario) navInventario.classList.add('hidden');
     if (navAuditoria) navAuditoria.classList.add('hidden');
     if (btnAgregarLider) btnAgregarLider.classList.add('hidden');
     if (thGestionTI) thGestionTI.classList.add('hidden');
   } else if (rol === 'sistemas') {
     // Sistemas ve absolutamente todo y tiene control total de gestión
+    if (navInventario) navInventario.classList.remove('hidden');
     if (btnAgregarLider) btnAgregarLider.classList.remove('hidden');
     if (thGestionTI) thGestionTI.classList.remove('hidden');
   }
@@ -763,13 +767,13 @@ function actualizarReloj() {
 }
 
 function cambiarModulo(moduloId) {
-  const modulos = ['garita', 'sistemas', 'reporte-lideres', 'lideres', 'retornos', 'lideres-equipos', 'activos-ti', 'auditoria'];
+  const modulos = ['garita', 'sistemas', 'reporte-lideres', 'lideres', 'retornos', 'lideres-equipos', 'activos-ti', 'inventario', 'auditoria'];
   modulos.forEach(m => {
     const el = document.getElementById(`modulo-${m}`);
     const nav = document.getElementById(`nav-${m}`);
     if (el) el.classList.add('hidden');
     if (nav) {
-      nav.classList.remove('bg-emerald-600', 'bg-blue-600', 'bg-purple-600', 'bg-cyan-700', 'text-white', 'shadow-sm');
+      nav.classList.remove('bg-emerald-600', 'bg-blue-600', 'bg-purple-600', 'bg-cyan-700', 'bg-amber-600', 'text-white', 'shadow-sm');
       nav.classList.add('text-slate-300', 'hover:text-white', 'hover:bg-slate-800');
     }
   });
@@ -782,6 +786,7 @@ function cambiarModulo(moduloId) {
     if (moduloId === 'garita' || moduloId === 'retornos') activeColor = 'bg-emerald-600';
     if (moduloId === 'lideres-equipos') activeColor = 'bg-purple-600';
     if (moduloId === 'activos-ti') activeColor = 'bg-cyan-700';
+    if (moduloId === 'inventario') activeColor = 'bg-amber-600';
     navActivo.classList.add(activeColor, 'text-white', 'shadow-sm');
     navActivo.classList.remove('text-slate-300', 'hover:text-white', 'hover:bg-slate-800');
   }
@@ -814,6 +819,8 @@ function cambiarModulo(moduloId) {
     cargarBitacoraMovimientosTI();
     const inputTI = document.getElementById('inputEscaneoActivoTI');
     if (inputTI) inputTI.focus();
+  } else if (moduloId === 'inventario') {
+    iniciarModuloInventario();
   } else if (moduloId === 'auditoria') {
     cargarAuditoria();
   }
@@ -5180,6 +5187,829 @@ async function confirmarRetornoDesdeRastreador(codigoMaquina, titular) {
     showToast('Error: ' + err.message, 'error');
   }
 }
+
+// =========================================================================
+// MÓDULO DE AUDITORÍA FÍSICA DE PISO, PISTOLA E INVENTARIO ANTI-PÉRDIDAS
+// =========================================================================
+
+let inventarioPisoActual = 'Piso 3';
+let inventarioLiderActual = 'TODOS';
+let listaLecturasRonda = [];
+let conflictoActual = null;
+let listenerAutofocusIniciado = false;
+
+// Sonidos especializados para la pistola de inventario
+function playScanSuccessSound() {
+  const chk = document.getElementById('chkSonidoInventario');
+  if (chk && !chk.checked) return;
+  playTone(659.25, 'sine', 0.08); // E5
+  setTimeout(() => playTone(880, 'sine', 0.15), 90); // A5
+}
+
+function playScanWarningSound() {
+  const chk = document.getElementById('chkSonidoInventario');
+  if (chk && !chk.checked) return;
+  playTone(440, 'triangle', 0.12);
+  setTimeout(() => playTone(370, 'triangle', 0.2), 120);
+}
+
+function playScanAlertSound() {
+  const chk = document.getElementById('chkSonidoInventario');
+  if (chk && !chk.checked) return;
+  playTone(220, 'sawtooth', 0.25);
+  setTimeout(() => playTone(165, 'sawtooth', 0.35), 200);
+}
+
+// Iniciar y preparar módulo
+async function iniciarModuloInventario() {
+  const input = document.getElementById('inputInventarioPistola');
+  if (input) {
+    input.focus();
+    input.select();
+  }
+
+  // Llenar selectores de líderes
+  await cargarLideresSelectoresInventario();
+
+  // Cargar lecturas y conciliación inicial
+  await cargarConciliacionFaltantes();
+
+  // Configurar bloqueo de auto-enfoque permanente para que nunca pierda el foco de la pistola
+  if (!listenerAutofocusIniciado) {
+    listenerAutofocusIniciado = true;
+    document.addEventListener('click', (e) => {
+      const chk = document.getElementById('chkAutoEnfoqueInventario');
+      const inputPistola = document.getElementById('inputInventarioPistola');
+      const modInv = document.getElementById('modulo-inventario');
+
+      if (!chk || !chk.checked || !modInv || modInv.classList.contains('hidden')) return;
+
+      if (
+        e.target.closest('#modalResolverDuplicado') ||
+        e.target.closest('#modalReasignarEquipoInventario') ||
+        e.target.closest('select') ||
+        e.target.closest('button') ||
+        e.target.closest('input[type="checkbox"]') ||
+        e.target.closest('input[type="text"]:not(#inputInventarioPistola)')
+      ) {
+        return;
+      }
+
+      setTimeout(() => {
+        if (inputPistola && document.activeElement !== inputPistola) {
+          inputPistola.focus();
+        }
+      }, 50);
+    });
+  }
+
+  actualizarIndicadorFocoPistola();
+}
+
+function actualizarIndicadorFocoPistola() {
+  const badge = document.getElementById('badgeFocoPistola');
+  const input = document.getElementById('inputInventarioPistola');
+  if (!badge || !input) return;
+
+  input.addEventListener('focus', () => {
+    badge.className = 'flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold';
+    badge.innerHTML = '<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span><span>Pistola Lista</span>';
+  });
+
+  input.addEventListener('blur', () => {
+    badge.className = 'flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 border border-slate-300 text-slate-600 text-xs font-semibold';
+    badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-slate-400"></span><span>Haga clic para enfocar</span>';
+  });
+}
+
+// Cargar opciones de líderes en los selectores del módulo
+async function cargarLideresSelectoresInventario() {
+  try {
+    const res = await fetchAuth('/api/lideres-directorio');
+    const json = await res.json();
+    if (!json.ok || !json.data) return;
+
+    const selectFiltro = document.getElementById('selectLiderFiltroInventario');
+    const selectReasig = document.getElementById('formReasigLider');
+
+    if (selectFiltro) {
+      const valAnt = selectFiltro.value;
+      selectFiltro.innerHTML = '<option value="TODOS">Todos los Líderes (Global)</option>';
+      json.data.forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l.nombre;
+        opt.textContent = `${l.nombre} (${l.area_default || 'Cobranzas'})`;
+        selectFiltro.appendChild(opt);
+      });
+      selectFiltro.value = valAnt || 'TODOS';
+    }
+
+    if (selectReasig) {
+      selectReasig.innerHTML = '<option value="">-- Seleccione el Líder Oficial --</option>';
+      json.data.forEach(l => {
+        const opt = document.createElement('option');
+        opt.value = l.nombre;
+        opt.textContent = `${l.nombre} (${l.area_default || 'Cobranzas'})`;
+        selectReasig.appendChild(opt);
+      });
+    }
+  } catch (e) {
+    console.error('Error cargando líderes en inventario:', e);
+  }
+}
+
+// Selección de piso para la auditoría
+function seleccionarPisoInventario(piso) {
+  inventarioPisoActual = piso;
+
+  const botones = document.querySelectorAll('#grupoBotonesPisos .btn-piso-inv');
+  botones.forEach(btn => {
+    if (btn.textContent.trim() === piso || (piso === 'TODOS' && btn.textContent.includes('Todo'))) {
+      btn.className = 'btn-piso-inv px-3.5 py-2 text-xs font-black rounded-xl border-2 border-blue-600 bg-blue-50 text-blue-800 transition active';
+    } else {
+      btn.className = 'btn-piso-inv px-3.5 py-2 text-xs font-bold rounded-xl border border-slate-300 bg-slate-50 hover:bg-blue-50 text-slate-700 transition';
+    }
+  });
+
+  showToast(`Piso de auditoría cambiado a: ${piso}`, 'info');
+  cargarConciliacionFaltantes();
+
+  const input = document.getElementById('inputInventarioPistola');
+  if (input) input.focus();
+}
+
+function cambiarLiderFiltroInventario() {
+  const sel = document.getElementById('selectLiderFiltroInventario');
+  inventarioLiderActual = sel ? sel.value : 'TODOS';
+  cargarConciliacionFaltantes();
+}
+
+function manejarKeydownPistolaInventario(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    ejecutarEscaneoPistolaInventario();
+  }
+}
+
+// Ejecución del escaneo con la pistola
+async function ejecutarEscaneoPistolaInventario() {
+  const input = document.getElementById('inputInventarioPistola');
+  if (!input) return;
+
+  const raw = (input.value || '').trim();
+  if (!raw) return;
+
+  const codigo = raw.toUpperCase();
+  input.value = '';
+  input.focus();
+
+  const usuario = currentUser ? currentUser.nombre : 'David Sistemas';
+
+  try {
+    const res = await fetchAuth('/api/inventario/escanear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        codigo_maquina: codigo,
+        piso: inventarioPisoActual,
+        usuario
+      })
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      playScanAlertSound();
+      showToast(json.error || 'Error al procesar escaneo.', 'error');
+      return;
+    }
+
+    // Gestionar feedback sonoro según diagnóstico
+    if (json.estado_clasificacion === 'REGULAR') {
+      playScanSuccessSound();
+    } else if (json.estado_clasificacion === 'DESPLAZADO') {
+      playScanWarningSound();
+    } else {
+      playScanAlertSound();
+    }
+
+    // Actualizar banner en vivo
+    renderizarBannerUltimoEscaneo(json);
+
+    // Agregar al inicio de la lista de esta ronda
+    listaLecturasRonda.unshift(json);
+
+    // Actualizar vista de tarjetas
+    renderizarLecturasInventario();
+
+    // Actualizar KPIs de la pantalla
+    actualizarKPIsInventario();
+
+    // Si es un conflicto o duplicado, resaltar la alerta
+    if (json.conflicto || json.estado_clasificacion === 'DUPLICADO') {
+      showToast(`⚠️ ¡CONFLICTO DETECTADO en ${json.codigo_maquina}! Asignado a múltiples líderes.`, 'warning');
+    } else if (json.estado_clasificacion === 'EN_TELETRABAJO_PERO_EN_PLANTA') {
+      showToast(`🚨 ¡ATENCIÓN! La laptop ${json.codigo_maquina} constaba afuera en teletrabajo pero está en el piso.`, 'warning');
+    }
+
+    // Refrescar cálculo de faltantes en segundo plano
+    cargarConciliacionFaltantes();
+  } catch (err) {
+    playScanAlertSound();
+    showToast('Error de conexión al escanear: ' + err.message, 'error');
+  }
+}
+
+// Renderizar banner superior con el resultado inmediato
+function renderizarBannerUltimoEscaneo(res) {
+  const banner = document.getElementById('bannerUltimoEscaneo');
+  if (!banner) return;
+
+  banner.classList.remove('hidden');
+
+  let bgClass = 'bg-blue-50 border-blue-200 text-blue-900';
+  let iconName = 'check-circle';
+  let badgeText = '🟢 EQUIPO EN REGLA';
+  let badgeColor = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+
+  if (res.estado_clasificacion === 'DUPLICADO') {
+    bgClass = 'bg-orange-50 border-orange-300 text-orange-950 animate-pulse';
+    iconName = 'alert-triangle';
+    badgeText = '🟠 DUPLICADO / CONFLICTO EN CATÁLOGO';
+    badgeColor = 'bg-orange-200 text-orange-900 border-orange-400';
+  } else if (res.estado_clasificacion === 'DESPLAZADO') {
+    bgClass = 'bg-amber-50 border-amber-300 text-amber-950';
+    iconName = 'move';
+    badgeText = '🟡 DESPLAZADO DE OTRO PISO/LÍDER';
+    badgeColor = 'bg-amber-200 text-amber-900 border-amber-400';
+  } else if (res.estado_clasificacion === 'EN_TELETRABAJO_PERO_EN_PLANTA') {
+    bgClass = 'bg-rose-50 border-rose-300 text-rose-950';
+    iconName = 'alert-octagon';
+    badgeText = '⚠️ SUPUESTO TELETRABAJO (FÍSICO EN PLANTA)';
+    badgeColor = 'bg-rose-200 text-rose-900 border-rose-400';
+  } else if (res.estado_clasificacion === 'NO_REGISTRADO') {
+    bgClass = 'bg-red-50 border-red-300 text-red-950';
+    iconName = 'help-circle';
+    badgeText = '🔴 NO REGISTRADO / HUÉRFANO';
+    badgeColor = 'bg-red-200 text-red-900 border-red-400';
+  }
+
+  banner.className = `mt-4 p-4 rounded-2xl border ${bgClass} transition-all`;
+  banner.innerHTML = `
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div class="flex items-start gap-3">
+        <i data-lucide="${iconName}" class="w-6 h-6 shrink-0 mt-0.5"></i>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-lg font-black tracking-wider">${res.codigo_maquina}</span>
+            <span class="px-2 py-0.5 text-[10px] font-black rounded-full border ${badgeColor}">${badgeText}</span>
+            <span class="text-xs font-semibold text-slate-500">Hallado en: ${res.piso_hallazgo}</span>
+          </div>
+          <div class="text-xs font-bold mt-1">
+            <span>Titular: <strong>${res.titular || 'Desconocido'}</strong></span>
+            <span class="mx-1.5">•</span>
+            <span>Líder: <strong>${res.lider_asignado || 'N/A'}</strong></span>
+            <span class="mx-1.5">•</span>
+            <span>Área: <strong>${res.area_asignada || 'General'}</strong></span>
+          </div>
+          <p class="text-xs mt-1 font-medium opacity-90">${res.mensaje_diagnostico}</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 shrink-0">
+        ${res.conflicto ? `
+          <button onclick="abrirModalResolverDuplicadoPorCodigo('${res.codigo_maquina}')" class="touch-btn px-4 py-2 bg-orange-600 hover:bg-orange-700 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5">
+            <i data-lucide="wrench" class="w-3.5 h-3.5"></i>
+            <span>Resolver Conflicto (1 Clic)</span>
+          </button>
+        ` : ''}
+
+        ${res.estado_clasificacion === 'EN_TELETRABAJO_PERO_EN_PLANTA' ? `
+          <button onclick="marcarEquipoRecuperadoEnPlanta('${res.codigo_maquina}')" class="touch-btn px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs rounded-xl shadow-md flex items-center gap-1.5">
+            <i data-lucide="building" class="w-3.5 h-3.5"></i>
+            <span>Confirmar en Planta</span>
+          </button>
+        ` : ''}
+
+        <button onclick="abrirModalReasignarInventario('${res.codigo_maquina}', '${res.modelo || 'DELL'}', '${res.area_asignada || 'Cobranzas'}')" class="touch-btn px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold text-xs rounded-xl flex items-center gap-1">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          <span>Reasignar</span>
+        </button>
+      </div>
+    </div>
+  `;
+
+  lucide.createIcons();
+}
+
+// Renderizar tarjetas de lecturas registradas en la ronda
+function renderizarLecturasInventario() {
+  const cont = document.getElementById('listaEscaneosInventario');
+  const contadorTab = document.getElementById('contTabEscaneados');
+  if (!cont) return;
+
+  if (contadorTab) contadorTab.textContent = listaLecturasRonda.length;
+
+  if (listaLecturasRonda.length === 0) {
+    cont.innerHTML = `
+      <div class="text-center py-12 text-slate-400">
+        <i data-lucide="barcode" class="w-12 h-12 mx-auto mb-2 text-slate-300"></i>
+        <p class="text-sm font-bold">Aún no se han escaneado equipos en esta ronda.</p>
+        <p class="text-xs">Seleccione el piso y dispare la pistola al primer código de máquina.</p>
+      </div>
+    `;
+    lucide.createIcons();
+    return;
+  }
+
+  let html = '';
+  listaLecturasRonda.forEach((item, idx) => {
+    let bordeColor = 'border-slate-200';
+    let badgeClass = 'bg-slate-100 text-slate-700 border-slate-300';
+    let badgeLabel = 'REGULAR';
+
+    if (item.estado_clasificacion === 'REGULAR') {
+      bordeColor = 'border-emerald-200 bg-emerald-50/10';
+      badgeClass = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+      badgeLabel = '🟢 EN REGLA';
+    } else if (item.estado_clasificacion === 'DESPLAZADO') {
+      bordeColor = 'border-amber-300 bg-amber-50/20';
+      badgeClass = 'bg-amber-100 text-amber-800 border-amber-300';
+      badgeLabel = '🟡 DESPLAZADO';
+    } else if (item.estado_clasificacion === 'DUPLICADO') {
+      bordeColor = 'border-orange-400 bg-orange-50/40 shadow-md';
+      badgeClass = 'bg-orange-200 text-orange-900 border-orange-400 font-black animate-pulse';
+      badgeLabel = '🟠 CONFLICTO / DUPLICADO';
+    } else if (item.estado_clasificacion === 'EN_TELETRABAJO_PERO_EN_PLANTA') {
+      bordeColor = 'border-rose-300 bg-rose-50/30';
+      badgeClass = 'bg-rose-100 text-rose-800 border-rose-300 font-bold';
+      badgeLabel = '⚠️ EN PLANTA (FIGURABA AFUERA)';
+    } else if (item.estado_clasificacion === 'NO_REGISTRADO') {
+      bordeColor = 'border-red-300 bg-red-50/20';
+      badgeClass = 'bg-red-100 text-red-800 border-red-300';
+      badgeLabel = '🔴 NO REGISTRADO';
+    }
+
+    html += `
+      <div class="p-4 rounded-2xl border ${bordeColor} bg-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition hover:shadow-md">
+        <div class="flex items-start gap-3.5">
+          <div class="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center font-mono font-black text-slate-700 text-xs shrink-0">
+            #${listaLecturasRonda.length - idx}
+          </div>
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-base font-black text-slate-900 tracking-wider">${item.codigo_maquina}</span>
+              <span class="px-2.5 py-0.5 text-[10px] rounded-full border ${badgeClass}">${badgeLabel}</span>
+              <span class="text-xs font-bold text-slate-500">Piso: ${item.piso_hallazgo}</span>
+              <span class="text-[10px] text-slate-400 font-mono">${item.fecha_escaneo || ''}</span>
+            </div>
+            <div class="text-xs font-bold text-slate-700 mt-1">
+              <span>Titular: <strong class="text-slate-900">${item.titular || 'No registrado'}</strong></span>
+              <span class="text-slate-300 mx-1.5">•</span>
+              <span>Líder: <strong class="text-purple-700">${item.lider_asignado || 'N/A'}</strong></span>
+              <span class="text-slate-300 mx-1.5">•</span>
+              <span>Modelo: <strong class="text-slate-500">${item.modelo || 'DELL'}</strong></span>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-0.5">${item.mensaje_diagnostico || ''}</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0 self-end md:self-center">
+          ${item.conflicto || item.estado_clasificacion === 'DUPLICADO' ? `
+            <button onclick="abrirModalResolverDuplicadoPorCodigo('${item.codigo_maquina}')" class="touch-btn px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white font-black text-xs rounded-xl shadow-sm flex items-center gap-1">
+              <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
+              <span>Resolver Duplicado</span>
+            </button>
+          ` : ''}
+
+          ${item.estado_clasificacion === 'EN_TELETRABAJO_PERO_EN_PLANTA' ? `
+            <button onclick="marcarEquipoRecuperadoEnPlanta('${item.codigo_maquina}')" class="touch-btn px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl flex items-center gap-1">
+              <i data-lucide="building" class="w-3.5 h-3.5"></i>
+              <span>Cerrar Salida</span>
+            </button>
+          ` : ''}
+
+          <button onclick="abrirModalReasignarInventario('${item.codigo_maquina}', '${item.modelo || 'DELL'}', '${item.area_asignada || 'Cobranzas'}')" class="touch-btn px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1" title="Cambiar asesor o líder oficial">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            <span>Reasignar</span>
+          </button>
+        </div>
+      </div>
+    `;
+  });
+
+  cont.innerHTML = html;
+  lucide.createIcons();
+}
+
+function limpiarRondaEscaneo() {
+  if (listaLecturasRonda.length === 0) return;
+  if (!confirm('¿Desea limpiar la lista visual de lecturas de esta ronda?\n\n(Los registros de auditoría ya quedaron guardados en la base de datos).')) return;
+  listaLecturasRonda = [];
+  renderizarLecturasInventario();
+  actualizarKPIsInventario();
+}
+
+function actualizarKPIsInventario() {
+  const elTotal = document.getElementById('kpiInvEscaneados');
+  const elRegla = document.getElementById('kpiInvEnRegla');
+  const elDesp = document.getElementById('kpiInvDesplazados');
+  const elDup = document.getElementById('kpiInvDuplicados');
+
+  if (elTotal) elTotal.textContent = listaLecturasRonda.length;
+
+  let regla = 0;
+  let desp = 0;
+  let dup = 0;
+
+  listaLecturasRonda.forEach(l => {
+    if (l.estado_clasificacion === 'REGULAR') regla++;
+    else if (l.estado_clasificacion === 'DESPLAZADO') desp++;
+    else if (l.estado_clasificacion === 'DUPLICADO' || l.conflicto) dup++;
+  });
+
+  if (elRegla) elRegla.textContent = regla;
+  if (elDesp) elDesp.textContent = desp;
+  if (elDup) elDup.textContent = dup;
+}
+
+// Modal para resolver duplicado en 1 clic
+function abrirModalResolverDuplicadoPorCodigo(codigo) {
+  const lectura = listaLecturasRonda.find(l => l.codigo_maquina === codigo);
+  if (lectura) {
+    abrirModalResolverDuplicado(lectura);
+  } else {
+    fetchAuth(`/api/equipos/rastrear?q=${codigo}`).then(r => r.json()).then(res => {
+      abrirModalResolverDuplicado({
+        codigo_maquina: codigo,
+        coincidencias_catalogo: res.catalogo ? [res.catalogo] : []
+      });
+    });
+  }
+}
+
+function abrirModalResolverDuplicado(item) {
+  conflictoActual = item;
+  const modal = document.getElementById('modalResolverDuplicado');
+  const sub = document.getElementById('subtituloModalDuplicado');
+  const cont = document.getElementById('contenedorOpcionesDuplicado');
+
+  if (sub) sub.textContent = `Máquina en Conflicto: ${item.codigo_maquina}`;
+  if (!modal || !cont) return;
+
+  const coincidencias = item.coincidencias_catalogo || [];
+
+  if (coincidencias.length === 0) {
+    cont.innerHTML = `
+      <div class="p-4 bg-slate-50 rounded-2xl text-center text-xs text-slate-500">
+        No se pudieron desglosar las filas exactas del catálogo. Puede usar el botón de reasignación manual.
+      </div>
+    `;
+  } else {
+    let html = '';
+    coincidencias.forEach(c => {
+      const otrosIds = coincidencias.filter(x => x.id !== c.id).map(x => x.id);
+      html += `
+        <div class="p-3.5 rounded-2xl border-2 border-slate-200 hover:border-blue-500 bg-slate-50 flex items-center justify-between gap-3 transition">
+          <div>
+            <div class="font-black text-xs text-slate-900">${c.nombres}</div>
+            <div class="text-[11px] font-semibold text-slate-500">
+              Líder: <strong class="text-purple-700">${c.lider_nombre}</strong> • Cédula: ${c.cedula || 'S/N'}
+            </div>
+            <div class="text-[10px] text-slate-400">Área: ${c.area || 'Cobranzas'} • Modelo: ${c.modelo || 'DELL'}</div>
+          </div>
+          <button 
+            type="button" 
+            onclick="ejecutarResolucionDuplicado(${c.id}, [${otrosIds.join(',')}], '${c.lider_nombre}', '${c.nombres}')" 
+            class="touch-btn px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs rounded-xl shadow-md shrink-0 transition"
+          >
+            <span>Dejar Oficial a este Asesor</span>
+          </button>
+        </div>
+      `;
+    });
+    cont.innerHTML = html;
+  }
+
+  modal.classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function cerrarModalResolverDuplicado() {
+  const modal = document.getElementById('modalResolverDuplicado');
+  if (modal) modal.classList.add('hidden');
+  conflictoActual = null;
+  const input = document.getElementById('inputInventarioPistola');
+  if (input) input.focus();
+}
+
+async function ejecutarResolucionDuplicado(idMantener, idsEliminar, nuevoLider, nuevoAsesor) {
+  if (!conflictoActual) return;
+  const codigo = conflictoActual.codigo_maquina;
+  const usuario = currentUser ? currentUser.nombre : 'David Sistemas';
+
+  try {
+    const res = await fetchAuth('/api/inventario/resolver-duplicado', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        codigo_maquina: codigo,
+        catalogo_id_mantener: idMantener,
+        catalogo_ids_eliminar: idsEliminar,
+        nuevo_lider: nuevoLider,
+        nuevo_asesor: nuevoAsesor,
+        usuario
+      })
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.error || 'Error al resolver conflicto.');
+      return;
+    }
+
+    playSuccessSound();
+    showToast(`✅ Conflicto resuelto: ${codigo} asignado a ${nuevoAsesor} (${nuevoLider})`, 'success');
+    cerrarModalResolverDuplicado();
+
+    const itemLocal = listaLecturasRonda.find(l => l.codigo_maquina === codigo);
+    if (itemLocal) {
+      itemLocal.estado_clasificacion = 'REGULAR';
+      itemLocal.conflicto = false;
+      itemLocal.titular = nuevoAsesor;
+      itemLocal.lider_asignado = nuevoLider;
+      itemLocal.mensaje_diagnostico = `Conflicto resuelto: Asignado oficialmente a ${nuevoAsesor} (${nuevoLider}).`;
+    }
+
+    renderizarLecturasInventario();
+    actualizarKPIsInventario();
+    cargarConciliacionFaltantes();
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+function abrirModalReasignarDesdeDuplicado() {
+  if (!conflictoActual) return;
+  const cod = conflictoActual.codigo_maquina;
+  cerrarModalResolverDuplicado();
+  abrirModalReasignarInventario(cod);
+}
+
+function abrirModalReasignarInventario(codigo, modelo = 'DELL', area = 'Cobranzas') {
+  const modal = document.getElementById('modalReasignarEquipoInventario');
+  const sub = document.getElementById('subtituloModalReasignar');
+  const inputCod = document.getElementById('formReasigCodigo');
+  const inputMod = document.getElementById('formReasigModelo');
+  const inputArea = document.getElementById('formReasigArea');
+  const inputNom = document.getElementById('formReasigNombres');
+  const inputCed = document.getElementById('formReasigCedula');
+
+  if (sub) sub.textContent = `Código de Máquina: ${codigo}`;
+  if (inputCod) inputCod.value = codigo;
+  if (inputMod) inputMod.value = modelo;
+  if (inputArea) inputArea.value = area;
+  if (inputNom) inputNom.value = '';
+  if (inputCed) inputCed.value = '';
+
+  if (modal) modal.classList.remove('hidden');
+  if (inputNom) inputNom.focus();
+}
+
+function cerrarModalReasignarInventario() {
+  const modal = document.getElementById('modalReasignarEquipoInventario');
+  if (modal) modal.classList.add('hidden');
+  const input = document.getElementById('inputInventarioPistola');
+  if (input) input.focus();
+}
+
+async function ejecutarReasignacionInventario(e) {
+  e.preventDefault();
+  const codigo = document.getElementById('formReasigCodigo').value;
+  const lider = document.getElementById('formReasigLider').value;
+  const nombres = document.getElementById('formReasigNombres').value;
+  const cedula = document.getElementById('formReasigCedula').value;
+  const modelo = document.getElementById('formReasigModelo').value;
+  const area = document.getElementById('formReasigArea').value;
+  const usuario = currentUser ? currentUser.nombre : 'David Sistemas';
+
+  if (!lider || !nombres) {
+    alert('Por favor seleccione el líder y digite el nombre del asesor.');
+    return;
+  }
+
+  try {
+    const res = await fetchAuth('/api/inventario/reasignar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        codigo_maquina: codigo,
+        lider_nombre: lider,
+        nombres,
+        cedula,
+        modelo,
+        tipo_equipo: 'Laptop',
+        area,
+        usuario
+      })
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.error || 'Error al reasignar equipo.');
+      return;
+    }
+
+    playSuccessSound();
+    showToast(`✅ Equipo ${codigo} reasignado a ${nombres} (${lider})`, 'success');
+    cerrarModalReasignarInventario();
+
+    const itemLocal = listaLecturasRonda.find(l => l.codigo_maquina === codigo);
+    if (itemLocal) {
+      itemLocal.estado_clasificacion = 'REGULAR';
+      itemLocal.conflicto = false;
+      itemLocal.titular = nombres;
+      itemLocal.lider_asignado = lider;
+      itemLocal.area_asignada = area;
+      itemLocal.mensaje_diagnostico = `Reasignado oficialmente a ${nombres} (${lider}).`;
+    }
+
+    renderizarLecturasInventario();
+    actualizarKPIsInventario();
+    cargarConciliacionFaltantes();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+async function marcarEquipoRecuperadoEnPlanta(codigo) {
+  if (!confirm(`¿Confirma que la laptop ${codigo} se encuentra físicamente en el escritorio de planta?\n\nEl sistema cerrará el estatus de teletrabajo y regularizará su presencia física.`)) {
+    return;
+  }
+
+  const usuario = currentUser ? currentUser.nombre : 'David Sistemas';
+
+  try {
+    const res = await fetchAuth('/api/inventario/marcar-recuperada', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        codigo_maquina: codigo,
+        usuario,
+        observaciones: 'Regularizado durante barrido de piso'
+      })
+    });
+
+    const json = await res.json();
+    if (!json.ok) {
+      alert(json.error || 'Error al regularizar equipo.');
+      return;
+    }
+
+    playSuccessSound();
+    showToast(`✅ Laptop ${codigo} marcada formalmente como PRESENTE EN PLANTA.`, 'success');
+
+    const itemLocal = listaLecturasRonda.find(l => l.codigo_maquina === codigo);
+    if (itemLocal) {
+      itemLocal.estado_clasificacion = 'REGULAR';
+      itemLocal.mensaje_diagnostico = 'Regularizado físicamente en planta durante la auditoría.';
+    }
+
+    renderizarLecturasInventario();
+    actualizarKPIsInventario();
+    cargarConciliacionFaltantes();
+  } catch (e) {
+    showToast('Error: ' + e.message, 'error');
+  }
+}
+
+async function cargarConciliacionFaltantes() {
+  const tbody = document.getElementById('cuerpoTablaFaltantes');
+  const contadorTab = document.getElementById('contTabFaltantes');
+  const kpiFaltantes = document.getElementById('kpiInvFaltantes');
+
+  if (!tbody) return;
+
+  try {
+    const query = `/api/inventario/conciliacion-faltantes?piso=${encodeURIComponent(inventarioPisoActual)}&lider=${encodeURIComponent(inventarioLiderActual)}`;
+    const res = await fetchAuth(query);
+    const json = await res.json();
+
+    if (!json.ok) {
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-rose-500 font-bold">${json.error || 'Error al conciliar faltantes.'}</td></tr>`;
+      return;
+    }
+
+    const faltantes = json.faltantes || [];
+
+    if (contadorTab) contadorTab.textContent = faltantes.length;
+    if (kpiFaltantes) kpiFaltantes.textContent = faltantes.length;
+
+    if (faltantes.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="8" class="text-center py-10 text-emerald-600 bg-emerald-50/20">
+            <i data-lucide="shield-check" class="w-10 h-10 mx-auto mb-2 text-emerald-500"></i>
+            <p class="text-sm font-black">¡TODO EN REGLA EN ESTE PISO!</p>
+            <p class="text-xs text-slate-500 mt-1">No se detectaron computadoras faltantes. Todas las laptops registradas o salieron legalmente a teletrabajo o fueron halladas físicamente en los escritorios.</p>
+          </td>
+        </tr>
+      `;
+      lucide.createIcons();
+      return;
+    }
+
+    let html = '';
+    faltantes.forEach(item => {
+      html += `
+        <tr class="hover:bg-rose-50/30 transition">
+          <td class="p-3 font-mono font-black text-rose-800 text-sm tracking-wide">${item.codigo_maquina}</td>
+          <td class="p-3 font-bold text-slate-900">${item.nombres}</td>
+          <td class="p-3 text-slate-500 font-mono">${item.cedula || 'S/N'}</td>
+          <td class="p-3 font-bold text-purple-700">${item.lider_nombre}</td>
+          <td class="p-3 text-slate-600">${item.area || 'General'}</td>
+          <td class="p-3 text-slate-500 font-bold">${item.modelo || 'DELL'}</td>
+          <td class="p-3">
+            <span class="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 text-[10px] font-black">
+              🚨 NO ENCONTRADA EN PLANTA
+            </span>
+          </td>
+          <td class="p-3 text-right">
+            <div class="flex items-center justify-end gap-1.5">
+              <button 
+                onclick="consultarTrazabilidadDirecta('${item.codigo_maquina}')" 
+                class="touch-btn px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg"
+                title="Ver historial de préstamos de esta máquina"
+              >
+                Historial
+              </button>
+              <button 
+                onclick="abrirModalReasignarInventario('${item.codigo_maquina}', '${item.modelo || 'DELL'}', '${item.area || 'Cobranzas'}')" 
+                class="touch-btn px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold rounded-lg shadow-sm"
+              >
+                Reasignar
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+
+    tbody.innerHTML = html;
+    lucide.createIcons();
+  } catch (err) {
+    console.error('Error cargando conciliación:', err);
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-rose-500 font-bold">Error de conexión: ${err.message}</td></tr>`;
+  }
+}
+
+function consultarTrazabilidadDirecta(codigo) {
+  cambiarModulo('auditoria');
+  const input = document.getElementById('inputTrazabilidadQuery');
+  if (input) {
+    input.value = codigo;
+    consultarTrazabilidad({ preventDefault: () => {} });
+  }
+}
+
+function cambiarPestanaInventario(pestana) {
+  const panelEsc = document.getElementById('panelInvEscaneados');
+  const panelFalt = document.getElementById('panelInvFaltantes');
+  const btnEsc = document.getElementById('tabInvBtnEscaneados');
+  const btnFalt = document.getElementById('tabInvBtnFaltantes');
+
+  if (pestana === 'escaneados') {
+    if (panelEsc) panelEsc.classList.remove('hidden');
+    if (panelFalt) panelFalt.classList.add('hidden');
+    if (btnEsc) {
+      btnEsc.className = 'px-5 py-3 text-xs font-black rounded-t-2xl border-t-2 border-x-2 border-blue-600 bg-white text-blue-700 shadow-sm transition';
+    }
+    if (btnFalt) {
+      btnFalt.className = 'px-5 py-3 text-xs font-black rounded-t-2xl border-t-2 border-x-2 border-transparent hover:border-slate-300 text-rose-600 transition';
+    }
+    const input = document.getElementById('inputInventarioPistola');
+    if (input) input.focus();
+  } else {
+    if (panelEsc) panelEsc.classList.add('hidden');
+    if (panelFalt) panelFalt.classList.remove('hidden');
+    if (btnEsc) {
+      btnEsc.className = 'px-5 py-3 text-xs font-black rounded-t-2xl border-t-2 border-x-2 border-transparent hover:border-slate-300 text-slate-600 transition';
+    }
+    if (btnFalt) {
+      btnFalt.className = 'px-5 py-3 text-xs font-black rounded-t-2xl border-t-2 border-x-2 border-rose-600 bg-white text-rose-700 shadow-sm transition';
+    }
+    cargarConciliacionFaltantes();
+  }
+  lucide.createIcons();
+}
+
+function exportarInformeInventarioExcel() {
+  const piso = encodeURIComponent(inventarioPisoActual);
+  const lider = encodeURIComponent(inventarioLiderActual);
+  const url = `/api/inventario/exportar-informe?piso=${piso}&lider=${lider}`;
+  window.open(url, '_blank');
+  showToast('Generando y descargando Informe Oficial de Inventario...', 'info');
+}
+
 
 
 

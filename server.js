@@ -3101,6 +3101,435 @@ app.get('/api/equipos/rastrear', requireRole(['sistemas', 'garita']), async (req
   }
 });
 
+// ==========================================
+// MÓDULO DE AUDITORÍA FÍSICA DE PISO E INVENTARIO ANTI-PÉRDIDAS
+// ==========================================
+
+// 1. Escaneo Rápido de Equipo con Pistola
+app.post('/api/inventario/escanear', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { codigo_maquina, piso = 'Piso 3', sesion_id, usuario = 'David Sistemas', area = '', ubicacion_exacta = '' } = req.body;
+    if (!codigo_maquina || !codigo_maquina.trim()) {
+      return res.status(400).json({ ok: false, error: 'Código de máquina requerido.' });
+    }
+
+    const cod = codigo_maquina.trim().toUpperCase();
+
+    // 1.1 Verificar si es equipo de TI
+    const activoTI = await db.prepare('SELECT * FROM activos_ti WHERE UPPER(codigo_maquina) = ?').get(cod);
+
+    // 1.2 Verificar si es equipo de un Líder de Operaciones
+    const liderDirectorio = await db.prepare('SELECT * FROM lideres_directorio WHERE UPPER(codigo_maquina) = ?').get(cod);
+
+    // 1.3 Buscar todas las asignaciones en el catálogo de asesores
+    const catalogoRows = await db.prepare('SELECT * FROM asesores_catalogo WHERE UPPER(codigo_maquina) = ? AND activo = 1').all(cod);
+
+    // 1.4 Buscar última solicitud para conocer si consta en teletrabajo
+    const ultimaSol = await db.prepare('SELECT * FROM solicitudes WHERE UPPER(codigo_maquina) = ? ORDER BY id DESC LIMIT 1').get(cod);
+    const estaEnTeletrabajo = (ultimaSol && ultimaSol.estado === 'SALIO');
+
+    // Determinar Clasificación
+    let clasificacion = 'REGULAR';
+    let categoria = 'ASESOR';
+    let titular = '';
+    let liderAsignado = '';
+    let areaAsignada = '';
+    let modelo = 'DELL';
+    let conflicto = false;
+    let mensajeDiagnostico = '';
+
+    if (activoTI) {
+      categoria = 'TI';
+      titular = activoTI.nombre_completo || activoTI.nombre;
+      liderAsignado = 'Dirección de TI';
+      areaAsignada = activoTI.area || 'Sistemas / TI';
+      modelo = activoTI.modelo || 'Dell Latitude Corporativa';
+      clasificacion = (piso === 'Oficina TI' || piso.toLowerCase().includes('ti')) ? 'REGULAR' : 'DESPLAZADO';
+      mensajeDiagnostico = `Equipo exclusivo de Sistemas (${activoTI.nombre_completo}). Pase Libre TI.`;
+    } else if (liderDirectorio) {
+      categoria = 'LIDER';
+      titular = liderDirectorio.nombre_completo || liderDirectorio.nombre;
+      liderAsignado = liderDirectorio.nombre;
+      areaAsignada = liderDirectorio.area_default || 'Cobranzas';
+      modelo = liderDirectorio.modelo || 'DELL';
+      clasificacion = 'REGULAR';
+      mensajeDiagnostico = `Equipo oficial del Líder ${liderDirectorio.nombre}.`;
+    } else if (catalogoRows.length > 1) {
+      conflicto = true;
+      clasificacion = 'DUPLICADO';
+      titular = catalogoRows.map(c => `${c.nombres} (Líder: ${c.lider_nombre})`).join(' vs ');
+      liderAsignado = catalogoRows.map(c => c.lider_nombre).join(', ');
+      areaAsignada = catalogoRows[0].area || '';
+      modelo = catalogoRows[0].modelo || 'DELL';
+      mensajeDiagnostico = `¡CONFLICTO DE ASIGNACIÓN! Este código figura registrado simultáneamente a ${catalogoRows.length} asesores/líderes.`;
+    } else if (catalogoRows.length === 1) {
+      const c = catalogoRows[0];
+      titular = c.nombres;
+      liderAsignado = c.lider_nombre;
+      areaAsignada = c.area || '';
+      modelo = c.modelo || 'DELL';
+
+      if (estaEnTeletrabajo) {
+        clasificacion = 'EN_TELETRABAJO_PERO_EN_PLANTA';
+        mensajeDiagnostico = `¡ALERTA! El sistema registraba que este equipo SALIÓ a teletrabajo con ${ultimaSol.nombres} el ${ultimaSol.fecha_salida}, pero está físicamente aquí.`;
+      } else {
+        clasificacion = 'REGULAR';
+        mensajeDiagnostico = `Equipo asignado en orden a ${c.nombres} (Líder: ${c.lider_nombre}).`;
+      }
+    } else {
+      if (ultimaSol) {
+        titular = ultimaSol.nombres;
+        liderAsignado = ultimaSol.lider_nombre || 'Histórico';
+        areaAsignada = ultimaSol.area || '';
+        modelo = ultimaSol.modelo || 'DELL';
+        clasificacion = estaEnTeletrabajo ? 'EN_TELETRABAJO_PERO_EN_PLANTA' : 'DESPLAZADO';
+        mensajeDiagnostico = `Equipo sin registro activo en catálogo actual, pero con historial previo con ${ultimaSol.nombres}.`;
+      } else {
+        clasificacion = 'NO_REGISTRADO';
+        titular = 'No registrado';
+        mensajeDiagnostico = 'Equipo HUÉRFANO o NUEVO: No consta en el catálogo ni en historial del sistema.';
+      }
+    }
+
+    const datosJson = JSON.stringify({
+      categoria,
+      titular,
+      liderAsignado,
+      areaAsignada,
+      modelo,
+      conflicto,
+      estaEnTeletrabajo,
+      ultimaSolicitud: ultimaSol || null,
+      coincidenciasCatalogo: catalogoRows
+    });
+
+    const ins = await db.prepare(`
+      INSERT INTO inventario_lecturas 
+      (sesion_id, codigo_maquina, piso_hallazgo, area_hallazgo, ubicacion_exacta, estado_clasificacion, datos_catalogo, usuario_auditor)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sesion_id || null,
+      cod,
+      piso,
+      area,
+      ubicacion_exacta,
+      clasificacion,
+      datosJson,
+      usuario
+    );
+
+    if (sesion_id) {
+      await db.prepare('UPDATE inventario_sesiones SET total_escaneados = total_escaneados + 1 WHERE id = ?').run(sesion_id);
+    }
+
+    res.json({
+      ok: true,
+      lectura_id: ins.lastInsertRowid,
+      codigo_maquina: cod,
+      piso_hallazgo: piso,
+      estado_clasificacion: clasificacion,
+      conflicto,
+      categoria,
+      titular,
+      lider_asignado: liderAsignado,
+      area_asignada: areaAsignada,
+      modelo,
+      esta_en_teletrabajo: estaEnTeletrabajo,
+      mensaje_diagnostico: mensajeDiagnostico,
+      coincidencias_catalogo: catalogoRows,
+      fecha_escaneo: new Date().toLocaleTimeString('es-EC')
+    });
+  } catch (error) {
+    console.error('Error en escaneo de inventario:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 2. Resolver Duplicado o Conflicto en Catálogo en 1 Clic
+app.post('/api/inventario/resolver-duplicado', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { codigo_maquina, catalogo_id_mantener, catalogo_ids_eliminar, nuevo_lider, nuevo_asesor, usuario = 'David Sistemas' } = req.body;
+    if (!codigo_maquina) {
+      return res.status(400).json({ ok: false, error: 'Código de máquina requerido.' });
+    }
+
+    const cod = codigo_maquina.trim().toUpperCase();
+
+    if (Array.isArray(catalogo_ids_eliminar) && catalogo_ids_eliminar.length > 0) {
+      for (const idDel of catalogo_ids_eliminar) {
+        await db.prepare('DELETE FROM asesores_catalogo WHERE id = ?').run(idDel);
+      }
+    }
+
+    if (catalogo_id_mantener) {
+      await db.prepare('UPDATE asesores_catalogo SET activo = 1 WHERE id = ?').run(catalogo_id_mantener);
+    }
+
+    if (nuevo_lider && nuevo_asesor) {
+      await db.prepare(`
+        UPDATE inventario_lecturas 
+        SET accion_aplicada = 'Conflicto Resuelto: Asignado a ' || ?, estado_clasificacion = 'REGULAR'
+        WHERE UPPER(codigo_maquina) = ?
+      `).run(`${nuevo_asesor} (${nuevo_lider})`, cod);
+    }
+
+    registrarAuditoria(null, 'RESOLUCION_DUPLICADO', usuario, `Conflicto resuelto para equipo ${cod}. Asignado a: ${nuevo_asesor || 'Asesor confirmado'} bajo Líder ${nuevo_lider || 'Confirmado'}.`);
+
+    res.json({ ok: true, message: `Conflicto resuelto exitosamente para la máquina ${cod}.` });
+  } catch (error) {
+    console.error('Error resolviendo duplicado:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 3. Reasignar Equipo a un Nuevo Asesor / Líder
+app.post('/api/inventario/reasignar', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { codigo_maquina, lider_nombre, cedula, nombres, modelo = 'DELL', tipo_equipo = 'Laptop', area = 'Cobranzas', usuario = 'David Sistemas' } = req.body;
+    if (!codigo_maquina || !lider_nombre || !nombres) {
+      return res.status(400).json({ ok: false, error: 'Código de máquina, nuevo líder y nombres son requeridos.' });
+    }
+
+    const cod = codigo_maquina.trim().toUpperCase();
+
+    await db.prepare('DELETE FROM asesores_catalogo WHERE UPPER(codigo_maquina) = ?').run(cod);
+
+    const cedulaFinal = (cedula || '').trim() || `GEN-${Date.now().toString().slice(-6)}`;
+    await sincronizarAsesorAlCatalogo(lider_nombre, cedulaFinal, nombres.trim(), cod, modelo, tipo_equipo, area);
+
+    await db.prepare(`
+      UPDATE inventario_lecturas 
+      SET accion_aplicada = 'Reasignado a ' || ?, estado_clasificacion = 'REGULAR'
+      WHERE UPPER(codigo_maquina) = ?
+    `).run(`${nombres} (${lider_nombre})`, cod);
+
+    registrarAuditoria(null, 'REASIGNACION_EQUIPO', usuario, `Equipo ${cod} reasignado oficialmente a ${nombres} (${lider_nombre}).`);
+
+    res.json({ ok: true, message: `Equipo ${cod} reasignado exitosamente a ${nombres} (${lider_nombre}).` });
+  } catch (error) {
+    console.error('Error en reasignación de inventario:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 4. Marcar Equipo como Físicamente Recuperado en Planta (Cerrar Falso Teletrabajo)
+app.post('/api/inventario/marcar-recuperada', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { codigo_maquina, usuario = 'David Sistemas', observaciones = '' } = req.body;
+    if (!codigo_maquina) {
+      return res.status(400).json({ ok: false, error: 'Código de máquina requerido.' });
+    }
+
+    const cod = codigo_maquina.trim().toUpperCase();
+    const hoyEcuador = getFechaLocalEcuador();
+    const obsFinal = `[Recuperado Físicamente en Planta durante Auditoría - ${hoyEcuador}] ${observaciones}`.trim();
+
+    await db.prepare(`
+      UPDATE solicitudes 
+      SET estado = 'RETORNADO', retornado_por = ?, retornado_en = datetime('now', 'localtime'), observaciones = coalesce(observaciones, '') || '\n' || ?
+      WHERE UPPER(codigo_maquina) = ? AND estado = 'SALIO'
+    `).run(usuario, obsFinal, cod);
+
+    await db.prepare(`
+      UPDATE inventario_lecturas 
+      SET accion_aplicada = 'Recuperado en Planta', estado_clasificacion = 'REGULAR'
+      WHERE UPPER(codigo_maquina) = ?
+    `).run(cod);
+
+    registrarAuditoria(null, 'RECUPERACION_PLANTA', usuario, `Equipo ${cod} marcado físicamente en planta durante barrido de inventario.`);
+
+    res.json({ ok: true, message: `Equipo ${cod} regularizado como FÍSICAMENTE EN PLANTA.` });
+  } catch (error) {
+    console.error('Error recuperando equipo en planta:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 5. Motor de Conciliación de Faltantes / Pérdidas de Piso
+app.get('/api/inventario/conciliacion-faltantes', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { piso = 'TODOS', lider = 'TODOS' } = req.query;
+
+    let sqlCat = 'SELECT * FROM asesores_catalogo WHERE activo = 1';
+    const paramsCat = [];
+    if (lider && lider !== 'TODOS') {
+      sqlCat += ' AND lider_nombre = ?';
+      paramsCat.push(lider);
+    }
+    sqlCat += ' ORDER BY lider_nombre ASC, nombres ASC';
+    const catalogo = await db.prepare(sqlCat).all(...paramsCat);
+
+    const enTeletrabajo = await db.prepare("SELECT * FROM solicitudes WHERE estado = 'SALIO'").all();
+    const mapTeletrabajo = new Map();
+    for (const sol of enTeletrabajo) {
+      mapTeletrabajo.set(sol.codigo_maquina.toUpperCase(), sol);
+    }
+
+    let sqlLecturas = 'SELECT DISTINCT UPPER(codigo_maquina) as cod, piso_hallazgo, estado_clasificacion, fecha_escaneo FROM inventario_lecturas';
+    const paramsLect = [];
+    if (piso && piso !== 'TODOS') {
+      sqlLecturas += ' WHERE piso_hallazgo = ?';
+      paramsLect.push(piso);
+    }
+    const escaneados = await db.prepare(sqlLecturas).all(...paramsLect);
+    const setEscaneados = new Set(escaneados.map(e => e.cod));
+
+    const faltantes = [];
+    const enPlantaHallados = [];
+    const afueraTeletrabajo = [];
+
+    for (const item of catalogo) {
+      const cod = (item.codigo_maquina || '').toUpperCase();
+      if (!cod) continue;
+
+      if (setEscaneados.has(cod)) {
+        enPlantaHallados.push({
+          ...item,
+          estado_auditoria: 'VERIFICADO_EN_PLANTA'
+        });
+      } else if (mapTeletrabajo.has(cod)) {
+        const sol = mapTeletrabajo.get(cod);
+        afueraTeletrabajo.push({
+          ...item,
+          solicitud_teletrabajo: sol,
+          estado_auditoria: 'LEGALMENTE_EN_TELETRABAJO'
+        });
+      } else {
+        faltantes.push({
+          ...item,
+          estado_auditoria: 'FALTANTE_DESAPARECIDO',
+          motivo_sospecha: 'Equipo en catálogo no salió a teletrabajo y no fue encontrado en el barrido físico.'
+        });
+      }
+    }
+
+    res.json({
+      ok: true,
+      piso_auditado: piso,
+      lider_auditado: lider,
+      total_catalogo: catalogo.length,
+      total_verificados_planta: enPlantaHallados.length,
+      total_en_teletrabajo: afueraTeletrabajo.length,
+      total_faltantes: faltantes.length,
+      faltantes,
+      en_planta_hallados: enPlantaHallados,
+      en_teletrabajo: afueraTeletrabajo
+    });
+  } catch (error) {
+    console.error('Error en conciliación de faltantes:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 6. Historial de Lecturas Recientes de Inventario
+app.get('/api/inventario/lecturas', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { sesion_id, piso, limit = 100 } = req.query;
+    let sql = 'SELECT * FROM inventario_lecturas WHERE 1=1';
+    const params = [];
+
+    if (sesion_id) {
+      sql += ' AND sesion_id = ?';
+      params.push(sesion_id);
+    }
+    if (piso && piso !== 'TODOS') {
+      sql += ' AND piso_hallazgo = ?';
+      params.push(piso);
+    }
+
+    sql += ' ORDER BY id DESC LIMIT ?';
+    params.push(parseInt(limit, 10) || 100);
+
+    const rows = await db.prepare(sql).all(...params);
+    res.json({ ok: true, data: rows });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+// 7. Exportar Informe de Auditoría Física a Excel para la Jefatura
+app.get('/api/inventario/exportar-informe', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { piso = 'TODOS', lider = 'TODOS' } = req.query;
+    const hoy = getFechaLocalEcuador();
+
+    let sqlLec = 'SELECT * FROM inventario_lecturas WHERE 1=1';
+    const paramsLec = [];
+    if (piso && piso !== 'TODOS') {
+      sqlLec += ' AND piso_hallazgo = ?';
+      paramsLec.push(piso);
+    }
+    sqlLec += ' ORDER BY id DESC';
+    const lecturas = await db.prepare(sqlLec).all(...paramsLec);
+
+    const dataLecturas = lecturas.map((l, idx) => {
+      let extra = {};
+      try { extra = JSON.parse(l.datos_catalogo || '{}'); } catch(e){}
+      return {
+        'N°': idx + 1,
+        'Código Máquina': l.codigo_maquina,
+        'Piso Hallazgo': l.piso_hallazgo,
+        'Estado Clasificación': l.estado_clasificacion,
+        'Titular en Sistema': extra.titular || 'No registrado',
+        'Líder Responsable': extra.liderAsignado || 'N/A',
+        'Área': extra.areaAsignada || '',
+        'Modelo': extra.modelo || 'DELL',
+        'Acción Aplicada': l.accion_aplicada || 'Escaneado',
+        'Auditor': l.usuario_auditor,
+        'Fecha y Hora': formatearTimestampEcuador(l.fecha_escaneo)
+      };
+    });
+
+    let sqlCat = 'SELECT * FROM asesores_catalogo WHERE activo = 1';
+    const paramsCat = [];
+    if (lider && lider !== 'TODOS') {
+      sqlCat += ' AND lider_nombre = ?';
+      paramsCat.push(lider);
+    }
+    const catalogo = await db.prepare(sqlCat).all(...paramsCat);
+
+    const enTeletrabajo = await db.prepare("SELECT * FROM solicitudes WHERE estado = 'SALIO'").all();
+    const setTeletrabajo = new Set(enTeletrabajo.map(s => s.codigo_maquina.toUpperCase()));
+    const setEscaneados = new Set(lecturas.map(l => l.codigo_maquina.toUpperCase()));
+
+    const dataFaltantes = [];
+    let contadorFaltantes = 1;
+    for (const item of catalogo) {
+      const cod = (item.codigo_maquina || '').toUpperCase();
+      if (!setEscaneados.has(cod) && !setTeletrabajo.has(cod)) {
+        dataFaltantes.push({
+          'N°': contadorFaltantes++,
+          'Código Máquina': cod,
+          'Asesor Asignado': item.nombres,
+          'Cédula Asesor': item.cedula,
+          'Líder de Operaciones': item.lider_nombre,
+          'Área': item.area || 'Cobranzas',
+          'Modelo': item.modelo || 'DELL',
+          'Diagnóstico': 'EQUIPO NO ENCONTRADO EN PLANTA (No salió a teletrabajo)',
+          'Alerta': 'CRÍTICA - POSIBLE PÉRDIDA O TRASPASO IRREGULAR'
+        });
+      }
+    }
+
+    const wb = xlsx.utils.book_new();
+    const wsLecturas = xlsx.utils.json_to_sheet(dataLecturas.length ? dataLecturas : [{ 'Estado': 'Sin lecturas registradas' }]);
+    const wsFaltantes = xlsx.utils.json_to_sheet(dataFaltantes.length ? dataFaltantes : [{ 'Estado': 'No se detectaron faltantes' }]);
+
+    xlsx.utils.book_append_sheet(wb, wsLecturas, 'Equipos_Verificados_Planta');
+    xlsx.utils.book_append_sheet(wb, wsFaltantes, 'EQUIPOS_FALTANTES_PERDIDOS');
+
+    const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const filename = `INFORME_INVENTARIO_PISO_SICET_${piso.replace(/\s+/g, '_')}_${hoy}.xlsx`;
+
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+  } catch (error) {
+    console.error('Error exportando informe de inventario:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // 18. Exportar a Excel con Filtros
 app.get('/api/exportar/excel', async (req, res) => {
   try {
