@@ -6087,6 +6087,242 @@ function exportarInformeInventarioExcel() {
   showToast('Generando y descargando Informe Oficial de Inventario...', 'info');
 }
 
+// =========================================================================
+// BUSCADOR Y LOCALIZADOR INMEDIATO DE MÁQUINAS EN AUDITORÍA (¿DÓNDE ESTÁ?)
+// =========================================================================
+
+function manejarKeydownBuscarEquipoInventario(event) {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    ejecutarBuscarEquipoInventario();
+  }
+}
+
+function verificarLimpiarBuscarInventario() {
+  const input = document.getElementById('inputBuscarEquipoInventario');
+  const btnLimpiar = document.getElementById('btnLimpiarBuscarInventario');
+  if (input && btnLimpiar) {
+    if (input.value.trim().length > 0) {
+      btnLimpiar.classList.remove('hidden');
+    } else {
+      btnLimpiar.classList.add('hidden');
+    }
+  }
+}
+
+function limpiarBusquedaEquipoInventario() {
+  const input = document.getElementById('inputBuscarEquipoInventario');
+  const btnLimpiar = document.getElementById('btnLimpiarBuscarInventario');
+  const contRes = document.getElementById('resultadoLocalizadorInventario');
+  if (input) {
+    input.value = '';
+    input.focus();
+  }
+  if (btnLimpiar) btnLimpiar.classList.add('hidden');
+  if (contRes) {
+    contRes.innerHTML = '';
+    contRes.classList.add('hidden');
+  }
+}
+
+async function ejecutarBuscarEquipoInventario() {
+  const input = document.getElementById('inputBuscarEquipoInventario');
+  const contRes = document.getElementById('resultadoLocalizadorInventario');
+  if (!input || !contRes) return;
+
+  const codigo = input.value.trim();
+  if (!codigo) {
+    showToast('Por favor ingrese el código de máquina para localizar', 'warning');
+    input.focus();
+    return;
+  }
+
+  contRes.classList.remove('hidden');
+  contRes.innerHTML = `
+    <div class="flex items-center gap-3 p-4 bg-slate-800/80 rounded-2xl border border-indigo-500/30 text-indigo-300">
+      <div class="animate-spin w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full"></div>
+      <span class="text-xs font-black uppercase tracking-wider">Rastreando código "${escapeHtml(codigo)}" en la auditoría física y catálogo...</span>
+    </div>
+  `;
+
+  try {
+    const res = await fetch(`/api/inventario/buscar-equipo?codigo=${encodeURIComponent(codigo)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      contRes.innerHTML = `
+        <div class="p-4 bg-rose-950/80 border-2 border-rose-500/60 rounded-2xl text-rose-200">
+          <p class="text-xs font-bold">${escapeHtml(data.error || 'Error al buscar el equipo.')}</p>
+        </div>
+      `;
+      return;
+    }
+
+    if (data.encontrado && data.enInventario) {
+      // ENCONTRADO EN AUDITORÍA
+      const textoCopia = `[LOCALIZACIÓN SICET]\nEquipo: ${data.codigo_maquina}\nUbicación: ${data.piso_hallazgo}\nFecha Escaneo: ${data.fecha_escaneo}\nAuditor: ${data.usuario_auditor}\nTitular: ${data.titular}\nLíder: ${data.lider_asignado}\nModelo: ${data.modelo}`;
+
+      contRes.innerHTML = `
+        <div class="p-5 bg-gradient-to-r from-emerald-950/90 via-slate-900 to-emerald-950/80 border-2 border-emerald-500/70 rounded-2xl shadow-xl space-y-4 animate-fadeIn">
+          
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-700/40 pb-3">
+            <div class="flex items-center gap-2.5">
+              <span class="p-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-400/40">
+                <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+              </span>
+              <div>
+                <span class="text-[10px] font-black uppercase tracking-wider text-emerald-400">Equipo Encontrado en Auditoría</span>
+                <h3 class="text-lg font-black text-white font-mono">${escapeHtml(data.codigo_maquina)}</h3>
+              </div>
+            </div>
+
+            <!-- Gran indicador de Piso -->
+            <div class="px-5 py-2.5 bg-emerald-500 text-slate-950 rounded-2xl font-black text-center shadow-lg shadow-emerald-500/30 flex items-center justify-center gap-2">
+              <i data-lucide="map-pin" class="w-5 h-5 text-slate-950"></i>
+              <span class="text-sm uppercase tracking-wide">UBICACIÓN: ${escapeHtml(data.piso_hallazgo)}</span>
+            </div>
+          </div>
+
+          <!-- Cuadrícula de Datos Clave -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div class="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+              <span class="block text-[10px] font-black uppercase text-slate-400 mb-0.5">Asesor Titular:</span>
+              <span class="font-bold text-white text-xs">${escapeHtml(data.titular)}</span>
+              ${data.cedula ? `<span class="block text-[10px] font-mono text-slate-400">CI: ${escapeHtml(data.cedula)}</span>` : ''}
+            </div>
+
+            <div class="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+              <span class="block text-[10px] font-black uppercase text-slate-400 mb-0.5">Líder & Área:</span>
+              <span class="font-bold text-emerald-300 text-xs">${escapeHtml(data.lider_asignado)}</span>
+              <span class="block text-[10px] text-slate-400">${escapeHtml(data.area_asignada || 'Cobranzas')}</span>
+            </div>
+
+            <div class="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+              <span class="block text-[10px] font-black uppercase text-slate-400 mb-0.5">Modelo / Equipo:</span>
+              <span class="font-bold text-white text-xs">${escapeHtml(data.modelo)}</span>
+              <span class="block text-[10px] text-slate-400">${escapeHtml(data.tipo_equipo)}</span>
+            </div>
+
+            <div class="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+              <span class="block text-[10px] font-black uppercase text-slate-400 mb-0.5">Auditor & Fecha:</span>
+              <span class="font-bold text-slate-200 text-xs">${escapeHtml(data.usuario_auditor)}</span>
+              <span class="block text-[10px] font-mono text-emerald-400">${escapeHtml(data.fecha_escaneo)}</span>
+            </div>
+          </div>
+
+          <!-- Acciones Rápidas -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-emerald-800/40">
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-1 bg-emerald-900/60 text-emerald-300 border border-emerald-500/40 text-[10px] font-black rounded-lg uppercase">
+                ${escapeHtml(data.estado_planta)}
+              </span>
+              <span class="text-[11px] text-slate-300">${escapeHtml(data.accion_aplicada)}</span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button 
+                type="button" 
+                onclick="copiarFichaEquipoInventario('${escapeHtml(textoCopia.replace(/\n/g, '\\n'))}')"
+                class="touch-btn px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold border border-slate-600 flex items-center gap-1.5 transition"
+              >
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                <span>Copiar Ficha</span>
+              </button>
+
+              <button 
+                type="button" 
+                onclick="seleccionarPisoInventario('${escapeHtml(data.piso_hallazgo)}')"
+                class="touch-btn px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 transition"
+              >
+                <i data-lucide="arrow-down-circle" class="w-3.5 h-3.5"></i>
+                <span>Ver Lista de ${escapeHtml(data.piso_hallazgo)}</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      `;
+    } else {
+      // NO ENCONTRADO EN AUDITORÍA
+      const esCat = data.enCatalogo;
+      const cat = data.catalogo || {};
+
+      contRes.innerHTML = `
+        <div class="p-5 bg-gradient-to-r from-rose-950/90 via-slate-900 to-rose-950/80 border-2 border-rose-500/70 rounded-2xl shadow-xl space-y-4 animate-fadeIn">
+          
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-rose-800/40 pb-3">
+            <div class="flex items-center gap-2.5">
+              <span class="p-2 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-400/40">
+                <i data-lucide="alert-octagon" class="w-6 h-6"></i>
+              </span>
+              <div>
+                <span class="text-[10px] font-black uppercase tracking-wider text-rose-400">Alerta de Pérdida o No Escaneado</span>
+                <h3 class="text-lg font-black text-white font-mono">${escapeHtml(data.codigo_buscado)}</h3>
+              </div>
+            </div>
+
+            <div class="px-4 py-2 bg-rose-600 text-white rounded-2xl font-black text-xs uppercase tracking-wide shadow-lg shadow-rose-600/30 flex items-center justify-center gap-1.5">
+              <i data-lucide="x-circle" class="w-4 h-4"></i>
+              <span>NO CONSTA EN INVENTARIO DE PLANTA</span>
+            </div>
+          </div>
+
+          <p class="text-xs sm:text-sm text-slate-200 font-medium">
+            ${escapeHtml(data.mensaje)}
+          </p>
+
+          ${esCat ? `
+            <div class="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div>
+                <span class="block text-[10px] font-black uppercase text-slate-400">Titular en Catálogo:</span>
+                <span class="font-bold text-white">${escapeHtml(cat.nombres || 'No especificado')}</span>
+                ${cat.cedula ? `<span class="block text-[10px] font-mono text-slate-400">CI: ${escapeHtml(cat.cedula)}</span>` : ''}
+              </div>
+              <div>
+                <span class="block text-[10px] font-black uppercase text-slate-400">Líder Asignado:</span>
+                <span class="font-bold text-rose-300">${escapeHtml(cat.lider_nombre || 'N/A')}</span>
+              </div>
+              <div>
+                <span class="block text-[10px] font-black uppercase text-slate-400">Modelo Registrado:</span>
+                <span class="font-bold text-slate-200">${escapeHtml(cat.modelo || 'DELL')} (${escapeHtml(cat.tipo_equipo || 'Laptop')})</span>
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="flex items-center justify-between text-xs pt-1 border-t border-rose-900/40 text-rose-300 font-semibold">
+            <span>Diagnóstico: Si el asesor afirma que está en el edificio, debe ser escaneada físicamente para ingresar al inventario.</span>
+          </div>
+
+        </div>
+      `;
+    }
+
+    lucide.createIcons();
+  } catch (err) {
+    console.error('Error buscando equipo en inventario:', err);
+    contRes.innerHTML = `
+      <div class="p-4 bg-rose-950/80 border-2 border-rose-500/60 rounded-2xl text-rose-200">
+        <p class="text-xs font-bold">Error de conexión al consultar el equipo.</p>
+      </div>
+    `;
+  }
+}
+
+function copiarFichaEquipoInventario(texto) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(texto).then(() => {
+      showToast('Ficha de localización copiada al portapapeles', 'success');
+    }).catch(() => {
+      showToast(texto, 'info');
+    });
+  } else {
+    showToast('Equipo verificado en inventario', 'info');
+  }
+}
+
+
 
 
 

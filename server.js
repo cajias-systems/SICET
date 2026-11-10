@@ -3496,6 +3496,90 @@ app.get('/api/inventario/lecturas', requireRole(['sistemas']), async (req, res) 
   }
 });
 
+// 6.1. Buscador y Localizador Instantáneo de Máquinas en Auditoría (Anti-Pérdidas)
+app.get('/api/inventario/buscar-equipo', requireRole(['sistemas']), async (req, res) => {
+  try {
+    const { codigo } = req.query;
+    if (!codigo || !codigo.trim()) {
+      return res.status(400).json({ ok: false, error: 'Código de máquina requerido para la búsqueda.' });
+    }
+    const cod = codigo.trim().toUpperCase();
+
+    // 1. Buscar en inventario_lecturas (búsqueda exacta primero, o LIKE)
+    let lectura = await db.prepare('SELECT * FROM inventario_lecturas WHERE UPPER(codigo_maquina) = ? ORDER BY id DESC LIMIT 1').get(cod);
+    if (!lectura) {
+      lectura = await db.prepare('SELECT * FROM inventario_lecturas WHERE UPPER(codigo_maquina) LIKE ? ORDER BY id DESC LIMIT 1').get(`%${cod}%`);
+    }
+
+    // 2. Buscar en asesores_catalogo (para saber a quién pertenece en teoría)
+    let catCoincidencias = await db.prepare('SELECT * FROM asesores_catalogo WHERE UPPER(codigo_maquina) = ? AND activo = 1').all(cod);
+    if (!catCoincidencias.length) {
+      catCoincidencias = await db.prepare('SELECT * FROM asesores_catalogo WHERE UPPER(codigo_maquina) LIKE ? AND activo = 1').all(`%${cod}%`);
+    }
+
+    // 3. Buscar en activos_ti (por si es máquina de Sistemas)
+    let activoTi = await db.prepare('SELECT * FROM activos_ti WHERE UPPER(codigo_maquina) = ? AND activo = 1').get(cod);
+
+    // 4. Buscar última solicitud en solicitudes
+    let ultimaSol = await db.prepare('SELECT * FROM solicitudes WHERE UPPER(codigo_maquina) = ? ORDER BY id DESC LIMIT 1').get(cod);
+
+    if (lectura) {
+      let extra = {};
+      try { extra = JSON.parse(lectura.datos_catalogo || '{}'); } catch(e){}
+      return res.json({
+        ok: true,
+        encontrado: true,
+        enInventario: true,
+        codigo_maquina: lectura.codigo_maquina,
+        piso_hallazgo: lectura.piso_hallazgo,
+        fecha_escaneo: formatearTimestampEcuador(lectura.fecha_escaneo),
+        usuario_auditor: lectura.usuario_auditor || 'David Sistemas',
+        estado_clasificacion: lectura.estado_clasificacion,
+        accion_aplicada: lectura.accion_aplicada || 'Escaneado en Planta',
+        titular: extra.titular || (catCoincidencias[0] ? catCoincidencias[0].nombres : (activoTi ? activoTi.nombre_completo : 'Sin titular asignado')),
+        cedula: extra.cedula || (catCoincidencias[0] ? catCoincidencias[0].cedula : (activoTi ? activoTi.cedula : '')),
+        lider_asignado: extra.liderAsignado || (catCoincidencias[0] ? catCoincidencias[0].lider_nombre : (activoTi ? 'Sistemas / TI' : 'N/A')),
+        area_asignada: extra.areaAsignada || (catCoincidencias[0] ? catCoincidencias[0].area : (activoTi ? activoTi.area : 'Cobranzas')),
+        modelo: extra.modelo || (catCoincidencias[0] ? catCoincidencias[0].modelo : (activoTi ? activoTi.modelo : 'DELL')),
+        tipo_equipo: extra.tipo_equipo || (catCoincidencias[0] ? catCoincidencias[0].tipo_equipo : 'Laptop'),
+        estado_planta: 'OPERATIVO EN PLANTA',
+        ultima_solicitud: ultimaSol ? {
+          id: ultimaSol.id,
+          estado: ultimaSol.estado,
+          fecha_salida: ultimaSol.fecha_salida,
+          retornado_en: ultimaSol.retornado_en
+        } : null
+      });
+    }
+
+    // No fue encontrado en el barrido de piso
+    return res.json({
+      ok: true,
+      encontrado: false,
+      enInventario: false,
+      codigo_buscado: cod,
+      enCatalogo: catCoincidencias.length > 0 || !!activoTi,
+      catalogo: catCoincidencias.length > 0 ? catCoincidencias[0] : (activoTi || null),
+      ultima_solicitud: ultimaSol ? {
+        id: ultimaSol.id,
+        estado: ultimaSol.estado,
+        fecha_salida: ultimaSol.fecha_salida,
+        retornado_en: ultimaSol.retornado_en,
+        nombres: ultimaSol.nombres,
+        lider_nombre: ultimaSol.lider_nombre
+      } : null,
+      mensaje: catCoincidencias.length > 0
+        ? `La máquina ${cod} figura en catálogo asignada a ${catCoincidencias[0].nombres} (Líder: ${catCoincidencias[0].lider_nombre}), PERO NO FUE ESCANEADA EN NINGÚN PISO durante la auditoría.`
+        : (activoTi
+          ? `La máquina ${cod} pertenece a Sistemas / TI (${activoTi.nombre_completo}), pero no fue escaneada en el barrido de piso.`
+          : `El código ${cod} NO FUE ESCANEADO en el inventario y tampoco consta en el catálogo de equipos registrados.`)
+    });
+  } catch (error) {
+    console.error('Error buscando equipo en inventario:', error);
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 // 7. Exportar Informe de Auditoría Física a Excel para la Jefatura
 app.get('/api/inventario/exportar-informe', requireRole(['sistemas']), async (req, res) => {
   try {

@@ -1565,6 +1565,64 @@
               </button>
             </div>
           </div>
+        <!-- ============================================================= -->
+        <!-- LOCALIZADOR RÁPIDO DE MÁQUINA EN AUDITORÍA (BUSCADOR DE PISO) -->
+        <!-- ============================================================= -->
+        <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 rounded-3xl border-2 border-indigo-500/50 shadow-xl text-white space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center text-indigo-400 shadow-inner">
+                <i data-lucide="search-check" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <h2 class="text-base sm:text-lg font-black tracking-tight text-white flex items-center gap-2">
+                  <span>Localizador Inmediato de Máquinas (¿Dónde está?)</span>
+                  <span class="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-[10px] font-black rounded-full uppercase tracking-wider">Piso Exacto</span>
+                </h2>
+                <p class="text-xs text-slate-300 font-medium">
+                  ¿Reportaron un equipo como perdido o traspasado? Ingrese el código aquí para verificar si está dentro del inventario auditado y en qué piso físico se encuentra.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-col sm:flex-row items-stretch gap-3">
+            <div class="relative flex-1">
+              <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-indigo-400">
+                <i data-lucide="search" class="w-5 h-5"></i>
+              </div>
+              <input 
+                type="text" 
+                id="inputBuscarEquipoInventario" 
+                autocomplete="off" 
+                placeholder="Digite el código de la máquina... (Ej: PF01XPUT, 4848, CNU23006MT)" 
+                class="w-full pl-12 pr-12 py-3.5 text-sm sm:text-base font-mono font-black uppercase tracking-wider bg-slate-800/90 border-2 border-indigo-500/40 rounded-2xl focus:ring-4 focus:ring-indigo-500/30 focus:border-indigo-400 focus:outline-none text-white placeholder:text-slate-400 transition"
+                onkeydown="manejarKeydownBuscarEquipoInventario(event)"
+                oninput="verificarLimpiarBuscarInventario()"
+              >
+              <button 
+                type="button" 
+                id="btnLimpiarBuscarInventario"
+                onclick="limpiarBusquedaEquipoInventario()" 
+                class="hidden absolute right-3 top-3 bottom-3 px-2 text-slate-400 hover:text-white transition"
+                title="Limpiar búsqueda"
+              >
+                <i data-lucide="x" class="w-5 h-5"></i>
+              </button>
+            </div>
+
+            <button 
+              type="button" 
+              onclick="ejecutarBuscarEquipoInventario()" 
+              class="touch-btn px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs sm:text-sm rounded-2xl shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition"
+            >
+              <i data-lucide="map-pin" class="w-4 h-4 text-indigo-200"></i>
+              <span>LOCALIZAR PISO</span>
+            </button>
+          </div>
+
+          <!-- CONTENEDOR DE RESULTADO DE LOCALIZACIÓN DINÁMICO -->
+          <div id="resultadoLocalizadorInventario" class="hidden"></div>
         </div>
 
         <!-- BARRA SELECTORA DE PISO Y FILTRO DE LÍDER -->
@@ -2508,6 +2566,6 @@
   </div>
 
   <!-- Script principal con cache-busting -->
-  <script src="/js/app.js?v=2.5.0"></script>
+  <script src="/js/app.js?v=2.6.0"></script>
 </body>
 </html>
