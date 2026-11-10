@@ -439,6 +439,12 @@ function procesarEventoTiempoReal(payload) {
       }
       break;
 
+    case 'INVENTARIO_ESCANEADO':
+      if (rol === 'sistemas') {
+        procesarEventoInventarioRemoto(data);
+      }
+      break;
+
     default:
       actualizarMetricasGenerales();
       break;
@@ -5220,12 +5226,38 @@ function playScanAlertSound() {
   setTimeout(() => playTone(165, 'sawtooth', 0.35), 200);
 }
 
+// Manejo del identificador de auditor para trabajo en equipo concurrente
+function getNombreAuditorActual() {
+  const input = document.getElementById('inputNombreAuditor');
+  if (input && input.value.trim()) {
+    return input.value.trim();
+  }
+  return localStorage.getItem('sicet_auditor_nombre') || (currentUser ? currentUser.nombre : 'David Sistemas');
+}
+
+function guardarNombreAuditorLocal() {
+  const input = document.getElementById('inputNombreAuditor');
+  if (input && input.value.trim()) {
+    const val = input.value.trim().toUpperCase();
+    input.value = val;
+    localStorage.setItem('sicet_auditor_nombre', val);
+    showToast(`Identificador de auditor guardado: ${val}`, 'info');
+  }
+}
+
 // Iniciar y preparar módulo
 async function iniciarModuloInventario() {
   const input = document.getElementById('inputInventarioPistola');
   if (input) {
     input.focus();
     input.select();
+  }
+
+  // Cargar nombre del auditor guardado en este equipo
+  const storedAuditor = localStorage.getItem('sicet_auditor_nombre');
+  const inputAuditor = document.getElementById('inputNombreAuditor');
+  if (storedAuditor && inputAuditor) {
+    inputAuditor.value = storedAuditor;
   }
 
   // Llenar selectores de líderes
@@ -5363,7 +5395,7 @@ async function ejecutarEscaneoPistolaInventario() {
   input.value = '';
   input.focus();
 
-  const usuario = currentUser ? currentUser.nombre : 'David Sistemas';
+  const usuario = getNombreAuditorActual();
 
   try {
     const res = await fetchAuth('/api/inventario/escanear', {
@@ -5384,7 +5416,10 @@ async function ejecutarEscaneoPistolaInventario() {
     }
 
     // Gestionar feedback sonoro según diagnóstico
-    if (json.estado_clasificacion === 'REGULAR') {
+    if (json.ya_escaneado_hoy) {
+      playScanWarningSound();
+      showToast(json.mensaje_duplicado_lectura || `ℹ️ Este equipo ya fue escaneado hoy.`, 'warning');
+    } else if (json.estado_clasificacion === 'REGULAR') {
       playScanSuccessSound();
     } else if (json.estado_clasificacion === 'DESPLAZADO') {
       playScanWarningSound();
@@ -5416,6 +5451,29 @@ async function ejecutarEscaneoPistolaInventario() {
   } catch (err) {
     playScanAlertSound();
     showToast('Error de conexión al escanear: ' + err.message, 'error');
+  }
+}
+
+// Receptor SSE de escaneo en tiempo real ejecutado por un compañero en otra computadora
+function procesarEventoInventarioRemoto(data) {
+  if (!data || !data.codigo_maquina) return;
+
+  const miNombre = getNombreAuditorActual();
+  if (data.usuario_auditor === miNombre) return;
+
+  const yaExiste = listaLecturasRonda.some(l => l.lectura_id === data.lectura_id);
+  if (yaExiste) return;
+
+  listaLecturasRonda.unshift(data);
+
+  renderizarLecturasInventario();
+  actualizarKPIsInventario();
+
+  showToast(`📡 [${data.usuario_auditor}] escaneó equipo ${data.codigo_maquina} en ${data.piso_hallazgo}`, 'info');
+
+  const panelFalt = document.getElementById('panelInvFaltantes');
+  if (panelFalt && !panelFalt.classList.contains('hidden')) {
+    cargarConciliacionFaltantes();
   }
 }
 

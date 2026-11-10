@@ -3128,6 +3128,21 @@ app.post('/api/inventario/escanear', requireRole(['sistemas']), async (req, res)
     const ultimaSol = await db.prepare('SELECT * FROM solicitudes WHERE UPPER(codigo_maquina) = ? ORDER BY id DESC LIMIT 1').get(cod);
     const estaEnTeletrabajo = (ultimaSol && ultimaSol.estado === 'SALIO');
 
+    // 1.5 Verificar si ya fue escaneado hoy por otro compañero de equipo (Detección de doble escaneo concurrente)
+    const lecturaPreviaHoy = await db.prepare(`
+      SELECT id, usuario_auditor, piso_hallazgo, strftime('%H:%M:%S', fecha_escaneo) as hora_escaneo
+      FROM inventario_lecturas
+      WHERE UPPER(codigo_maquina) = ? AND date(fecha_escaneo) = date('now', 'localtime')
+      ORDER BY id DESC LIMIT 1
+    `).get(cod);
+
+    let yaEscaneadoHoy = false;
+    let mensajeDuplicadoLectura = null;
+    if (lecturaPreviaHoy) {
+      yaEscaneadoHoy = true;
+      mensajeDuplicadoLectura = `ℹ️ ATENCIÓN: Este equipo ya fue escaneado hoy a las ${lecturaPreviaHoy.hora_escaneo} por [${lecturaPreviaHoy.usuario_auditor}] en ${lecturaPreviaHoy.piso_hallazgo}.`;
+    }
+
     // Determinar Clasificación
     let clasificacion = 'REGULAR';
     let categoria = 'ASESOR';
@@ -3191,6 +3206,11 @@ app.post('/api/inventario/escanear', requireRole(['sistemas']), async (req, res)
       }
     }
 
+    // Agregar aviso de escaneo previo si ocurrió hoy
+    if (yaEscaneadoHoy && !conflicto) {
+      mensajeDiagnostico = `${mensajeDuplicadoLectura} — ${mensajeDiagnostico}`;
+    }
+
     const datosJson = JSON.stringify({
       categoria,
       titular,
@@ -3199,6 +3219,8 @@ app.post('/api/inventario/escanear', requireRole(['sistemas']), async (req, res)
       modelo,
       conflicto,
       estaEnTeletrabajo,
+      yaEscaneadoHoy,
+      mensajeDuplicadoLectura,
       ultimaSolicitud: ultimaSol || null,
       coincidenciasCatalogo: catalogoRows
     });
@@ -3222,7 +3244,7 @@ app.post('/api/inventario/escanear', requireRole(['sistemas']), async (req, res)
       await db.prepare('UPDATE inventario_sesiones SET total_escaneados = total_escaneados + 1 WHERE id = ?').run(sesion_id);
     }
 
-    res.json({
+    const respuestaPayload = {
       ok: true,
       lectura_id: ins.lastInsertRowid,
       codigo_maquina: cod,
@@ -3235,10 +3257,18 @@ app.post('/api/inventario/escanear', requireRole(['sistemas']), async (req, res)
       area_asignada: areaAsignada,
       modelo,
       esta_en_teletrabajo: estaEnTeletrabajo,
+      ya_escaneado_hoy: yaEscaneadoHoy,
+      mensaje_duplicado_lectura: mensajeDuplicadoLectura,
       mensaje_diagnostico: mensajeDiagnostico,
       coincidencias_catalogo: catalogoRows,
+      usuario_auditor: usuario,
       fecha_escaneo: new Date().toLocaleTimeString('es-EC')
-    });
+    };
+
+    // Sincronización en tiempo real vía SSE a todas las computadoras del equipo de auditoría
+    broadcastEvent('INVENTARIO_ESCANEADO', respuestaPayload);
+
+    res.json(respuestaPayload);
   } catch (error) {
     console.error('Error en escaneo de inventario:', error);
     res.status(500).json({ ok: false, error: error.message });

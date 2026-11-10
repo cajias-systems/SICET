@@ -1628,19 +1628,34 @@
               </button>
             </div>
 
-            <!-- Indicadores de Enfoque y Sonido -->
-            <div class="flex items-center gap-3">
-              <div id="badgeFocoPistola" class="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
+            <!-- Indicadores de Enfoque, Auditor y Sonido -->
+            <div class="flex flex-wrap items-center gap-2.5">
+              
+              <!-- Identificador del Auditor para Trabajo Simultáneo entre Compañeros -->
+              <div class="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200/80 px-2.5 py-1.5 rounded-xl border border-slate-300 transition" title="Nombre de quién escanea en esta máquina. Así en el informe de la Jefa sale quién escaneó cada equipo.">
+                <i data-lucide="user-check" class="w-3.5 h-3.5 text-blue-600"></i>
+                <span class="text-[10px] font-black uppercase text-slate-500">Auditor:</span>
+                <input 
+                  type="text" 
+                  id="inputNombreAuditor" 
+                  value="David Sistemas" 
+                  onchange="guardarNombreAuditorLocal()" 
+                  class="bg-white px-2 py-0.5 text-xs font-black text-slate-800 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none w-28 uppercase" 
+                  placeholder="Mi Nombre"
+                >
+              </div>
+
+              <div id="badgeFocoPistola" class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold">
                 <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
                 <span>Pistola Lista</span>
               </div>
 
-              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none">
+              <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none">
                 <input type="checkbox" id="chkSonidoInventario" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500">
-                <span>🔊 Alertas Sonoras</span>
+                <span>🔊 Sonido</span>
               </label>
 
-              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 cursor-pointer select-none" title="Mantiene el cursor siempre en la caja de escaneo para que no tengas que usar el ratón">
+              <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer select-none" title="Mantiene el cursor siempre en la caja de escaneo para que no tengas que usar el ratón">
                 <input type="checkbox" id="chkAutoEnfoqueInventario" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500">
                 <span>🔒 Auto-enfoque</span>
               </label>
@@ -2493,6 +2508,6 @@
   </div>
 
   <!-- Script principal con cache-busting -->
-  <script src="/js/app.js?v=2.3.0"></script>
+  <script src="/js/app.js?v=2.4.0"></script>
 </body>
 </html>
