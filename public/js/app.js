@@ -6091,6 +6091,16 @@ function exportarInformeInventarioExcel() {
 // BUSCADOR Y LOCALIZADOR INMEDIATO DE MÁQUINAS EN AUDITORÍA (¿DÓNDE ESTÁ?)
 // =========================================================================
 
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function manejarKeydownBuscarEquipoInventario(event) {
   if (event.key === 'Enter') {
     event.preventDefault();
@@ -6146,9 +6156,7 @@ async function ejecutarBuscarEquipoInventario() {
   `;
 
   try {
-    const res = await fetch(`/api/inventario/buscar-equipo?codigo=${encodeURIComponent(codigo)}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    const res = await fetchAuth(`/api/inventario/buscar-equipo?codigo=${encodeURIComponent(codigo)}`);
     const data = await res.json();
 
     if (!data.ok) {
