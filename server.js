@@ -64,9 +64,15 @@ function formatearTimestampEcuador(raw) {
 }
 
 // Validación de horario de recepción para líderes (06:00 a 17:30, hora de Ecuador)
-function verificarHorarioRecepcionLideres(userRole) {
+// Permite bypass las 24h para Sistemas y casos de emergencia médica / contingencia justificada
+function verificarHorarioRecepcionLideres(userRole, observaciones = '', esEmergencia = false) {
   if (userRole === 'sistemas') {
     return { permitido: true }; // Sistemas tiene permiso las 24 horas para operar y autorizar
+  }
+
+  // Permitir emergencias médicas, salud o contingencias fuera de horario
+  if (esEmergencia || /emergencia|urgente|m[eé]dic|salud|enferm|epilep/i.test(observaciones)) {
+    return { permitido: true, esEmergencia: true };
   }
 
   const d = new Date();
@@ -87,7 +93,7 @@ function verificarHorarioRecepcionLideres(userRole) {
     const horaStr = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
     return {
       permitido: false,
-      error: `Horario fuera de turno (${horaStr}): Las solicitudes de salida para teletrabajo únicamente se reciben de 06:00 a 17:30 (hora oficial de Ecuador). El área de Sistemas ha concluido su turno de recepción.`
+      error: `Horario fuera de turno (${horaStr}): Las solicitudes de salida para teletrabajo habitualmente se reciben de 06:00 a 17:30 (hora oficial de Ecuador). Para casos fuera de turno por salud o contingencia, incluya la palabra "emergencia" o "médica" en las observaciones.`
     };
   }
 
@@ -1111,7 +1117,7 @@ app.post('/api/lider/autorizar-lote-habitual', async (req, res) => {
     const { lider_nombre, asesores_ids, asesores: asesoresDirectos, fecha_salida, fecha_retorno_estimada, observaciones, area } = req.body;
 
     const userRole = req.headers['x-user-role'] || 'lider';
-    const checkHorario = verificarHorarioRecepcionLideres(userRole);
+    const checkHorario = verificarHorarioRecepcionLideres(userRole, observaciones, req.body.es_emergencia);
     if (!checkHorario.permitido) {
       return res.status(403).json({ ok: false, error: checkHorario.error });
     }
@@ -1333,7 +1339,7 @@ app.post('/api/solicitudes', async (req, res) => {
 
     const today = getFechaLocalEcuador();
     const userRole = req.headers['x-user-role'] || 'lider';
-    const checkHorario = verificarHorarioRecepcionLideres(userRole);
+    const checkHorario = verificarHorarioRecepcionLideres(userRole, observaciones, req.body.es_emergencia);
     if (!checkHorario.permitido) {
       return res.status(403).json({ ok: false, error: checkHorario.error });
     }
